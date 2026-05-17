@@ -21,6 +21,26 @@ export default function AIAssistant() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  const [debugResult, setDebugResult] = useState<{hasIssues: boolean, report: string} | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const handleDebug = async (prompt: string, response: string) => {
+      setIsAnalyzing(true);
+      setDebugResult(null);
+      try {
+          const resp = await safeFetch('/api/ai/debug-prompt', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prompt, response })
+          });
+          setDebugResult(resp);
+      } catch (e) {
+          console.error(e);
+      } finally {
+          setIsAnalyzing(false);
+      }
+  }
+
   // --- BRAIN CORE: SMOOTH TYPING BUFFER ---
   useEffect(() => {
     if (streamBuffer.length > 0) {
@@ -241,8 +261,14 @@ export default function AIAssistant() {
                 : 'bg-black/60 text-slate-300 border border-blue-500/10 rounded-tl-sm backdrop-blur-md'
             }`}>
                {msg.meta && msg.role === 'model' && (
-                 <div className="flex items-center gap-2 mb-3 border-b border-white/5 pb-2">
+                 <div className="flex items-center justify-between gap-2 mb-3 border-b border-white/5 pb-2">
                     <span className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-500/70">{msg.meta.provider}</span>
+                    <button 
+                      onClick={() => handleDebug(messages[idx-1]?.text || '', msg.text)}
+                      className="text-[9px] font-bold text-blue-500 hover:text-blue-400"
+                    >
+                      {isAnalyzing ? "Analyzing..." : "Debug Prompt"}
+                    </button>
                  </div>
                )}
                <div className="markdown-body text-[13px] prose prose-invert prose-p:leading-[1.8] prose-pre:bg-[#050506] prose-pre:border prose-pre:border-white/10 prose-pre:shadow-inner prose-a:text-blue-400 prose-headings:text-white prose-strong:text-orange-400">
@@ -260,6 +286,18 @@ export default function AIAssistant() {
           </motion.div>
           )
         ))}
+        {debugResult && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="p-4 bg-orange-950/10 border border-orange-500/20 rounded-xl text-xs text-orange-100 mt-4">
+                <h4 className="font-bold mb-2 flex items-center justify-between">
+                    AI Debug Analysis
+                    <button onClick={() => setDebugResult(null)} className="text-xs hover:text-orange-300">Close</button>
+                </h4>
+                <p className={debugResult.hasIssues ? "text-red-400" : "text-green-400"}>
+                  {debugResult.hasIssues ? "Issues Detected" : "No obvious issues detected"}
+                </p>
+                <div className="mt-2 prose prose-sm prose-invert">{debugResult.report}</div>
+            </motion.div>
+        )}
         {isLoading && messages[messages.length - 1]?.text === '' && (
            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4 max-w-[85%]">
              <div className="shrink-0 w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shadow-[inset_0_0_15px_rgba(59,130,246,0.2)]">✧</div>

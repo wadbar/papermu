@@ -602,10 +602,15 @@ router.post("/ai/chat-stream", async (req, res) => {
       IMPORTANTE: Se o usuário pedir para executar algo no banco de dados, responda em formato JSON plano pedindo a execução da query.
       
       Diretrizes:
-      1. Responda em Português do Brasil.
+      1. Responda estritamente em Português do Brasil.
       2. Seja técnico, útil e focado em Mu Online (S6+).
       3. Se detectar intenção de consulta ao banco, sugira a query SQL.
-      4. Sempre use formatação Markdown (negrito, itálico, listas, blocos de código) para melhorar a legibilidade.
+      4. PRIORIZE A LEGIBILIDADE USANDO MARKDOWN RICH:
+         - Use **Negrito** para enfatizar comandos, flags ou componentes.
+         - Use *Itálico* para conceitos técnicos.
+         - Use tabelas ou listas para organizar dados complexos.
+         - Use blocos de código ( \`\`\`sql ou \`\`\`cpp ) EXATAMENTE para exemplos técnicos.
+         - Use Headers (#) para estruturar a resposta.
     `;
 
     const history = messages?.map((m: any) => `${m.role.toUpperCase()}: ${m.text}`).join('\n') || '';
@@ -646,10 +651,15 @@ router.post("/ai/chat", async (req, res) => {
       IMPORTANTE: Se o usuário pedir para executar algo no banco de dados, responda em formato JSON plano pedindo a execução da query.
       
       Diretrizes:
-      1. Responda em Português do Brasil.
+      1. Responda estritamente em Português do Brasil.
       2. Seja técnico, útil e focado em Mu Online (S6+).
       3. Se detectar intenção de consulta ao banco, sugira a query SQL.
-      4. Sempre use formatação Markdown (negrito, itálico, listas, blocos de código) para melhorar a legibilidade.
+      4. PRIORIZE A LEGIBILIDADE USANDO MARKDOWN RICH:
+         - Use **Negrito** para enfatizar comandos, flags ou componentes.
+         - Use *Itálico* para conceitos técnicos.
+         - Use tabelas ou listas para organizar dados complexos.
+         - Use blocos de código ( \`\`\`sql ou \`\`\`cpp ) EXATAMENTE para exemplos técnicos.
+         - Use Headers (#) para estruturar a resposta.
     `;
 
     // Constrói o histórico para o motor
@@ -1008,7 +1018,21 @@ router.post("/ai/search-files", async (req, res) => {
 
   try {
     const matches = await searchFiles(muServerPath, query);
-    res.json({ matches, success: true });
+    if (!matches || matches.length === 0) return res.json({ matches: [], success: true });
+    
+    // Semantic ranking
+    const aiResp = await aiEngine.generate({
+      prompt: `User Query: "${query}"\nCandidate files: ${JSON.stringify(matches.map((m: any) => m.path))}`,
+      systemInstruction: `You are a semantic file search ranker. Rank these file paths by relevance to the query. Return them as a JSON array of objects: [{ "path": "...", "relevance": number_0_to_1, "reason": "short_reason" }, ...], sorted by relevance descending. Return ONLY JSON.`,
+      temperature: 0.1,
+      responseType: 'json'
+    });
+
+    if (aiResp.success) {
+      res.json({ matches: aiResp.content, success: true });
+    } else {
+      res.json({ matches, success: true });
+    }
   } catch (error: any) {
     logger.error("[AI-SEARCH] Failure", { error: error.message });
     res.status(500).json({ error: "Search failed", success: false });
@@ -1081,6 +1105,92 @@ router.post("/ai/log-guardian", async (req, res) => {
   } catch (error: any) {
     logger.error("[LOG-GUARDIAN] Sentinel failure", { error: error.message });
     res.status(500).json({ error: "Sentinel engine failure" });
+  }
+});
+
+// --- Git Management ---
+router.get("/git/log", async (req, res) => {
+  exec('git log -n 20 --pretty=format:"%h|%an|%cr|%s"', { cwd: muServerPath }, (err, stdout) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const logs = stdout.split('\n').filter(Boolean).map(line => {
+        const [hash, author, date, message] = line.split('|');
+        return { hash, author, date, message };
+    });
+    res.json({ logs });
+  });
+});
+
+router.post("/git/commit", async (req, res) => {
+  const { message } = req.body;
+  if (!message) return res.status(400).json({ error: "Missing message" });
+  exec(`git add . && git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: muServerPath }, (err, stdout) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, stdout });
+  });
+});
+
+router.post("/git/revert", async (req, res) => {
+  const { filepath } = req.body;
+  if (!filepath) return res.status(400).json({ error: "Missing filepath" });
+  exec(`git checkout -- "${filepath.replace(/"/g, '\\"')}"`, { cwd: muServerPath }, (err, stdout) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+router.post("/ai/generate-snippet", async (req, res) => {
+  const { query } = req.body;
+  if (!query || typeof query !== 'string') {
+    return res.status(400).json({ error: "Missing query" });
+  }
+
+  try {
+    const aiResp = await aiEngine.generate({
+      prompt: `Generate a code snippet for: ${query}`,
+      systemInstruction: `
+        You are a highly efficient code snippet generator for Mu Online C++ and general system tools.
+        Generate the requested snippet. 
+        Return ONLY the raw code, NO markdown, NO explanations, NO wrapping in code blocks.
+      `,
+      temperature: 0.1,
+      responseType: 'text'
+    });
+
+    if (!aiResp.success) {
+      return res.status(503).json({ error: aiResp.content, success: false });
+    }
+
+    res.json({ snippet: aiResp.content, success: true });
+  } catch (error: any) {
+    logger.error("[AI] Error generating snippet", { error: error.message });
+    res.status(500).json({ error: "AI snippet generation failed", success: false });
+  }
+});
+
+router.post("/ai/debug-prompt", async (req, res) => {
+  const { prompt, response } = req.body;
+  if (!prompt || !response) return res.status(400).json({ error: "Missing prompt or response" });
+
+  try {
+    const aiResp = await aiEngine.generate({
+      prompt: `PROMPT: ${prompt}\n\nRESPONSE: ${response}`,
+      systemInstruction: `
+        Analyze the provided AI response for potential hallucinations, logical errors, or misinformation.
+        Return EXACTLY a JSON string:
+        {
+          "hasIssues": boolean,
+          "report": "Detailed analysis and suggestions for improvement"
+        }
+      `,
+      temperature: 0.1,
+      responseType: 'json'
+    });
+
+    if (!aiResp.success) return res.status(503).json({ error: aiResp.content });
+    res.json({ ...aiResp.content, success: true });
+  } catch (error: any) {
+    logger.error("[AI-DEBUG] Analysis failure", { error: error.message });
+    res.status(500).json({ error: "Analysis engine failure" });
   }
 });
 

@@ -76,7 +76,9 @@ export default function SourceCodeView({ language = 'pt' }: { language?: Languag
   const [auditReport, setAuditReport] = useState<any>(null);
   const [lastChange, setLastChange] = useState<{ path: string, event: string, timestamp: string } | null>(null);
   const [currentFileModified, setCurrentFileModified] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'editor' | 'audit'>('editor');
+  const [activeSubTab, setActiveSubTab] = useState<'editor' | 'audit' | 'git'>('editor');
+  const [gitLog, setGitLog] = useState<{hash: string, author: string, date: string, message: string}[]>([]);
+  const [commitMessage, setCommitMessage] = useState("");
 
   // Autocomplete States
   const [autocomplete, setAutocomplete] = useState<{
@@ -262,6 +264,37 @@ export default function SourceCodeView({ language = 'pt' }: { language?: Languag
       });
   };
 
+  const fetchGitLog = async () => {
+    const data = await safeFetch('/api/git/log');
+    if (data.logs) setGitLog(data.logs);
+  };
+
+  const commitChanges = async () => {
+    if (!commitMessage) return toast.error("Commit message required");
+    const data = await safeFetch('/api/git/commit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: commitMessage })
+    });
+    if (data.success) {
+      toast.success("Committed");
+      setCommitMessage("");
+      fetchGitLog();
+    }
+  };
+  
+  const revertFile = async (filepath: string) => {
+    const data = await safeFetch('/api/git/revert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filepath })
+    });
+    if(data.success) {
+        toast.success("Reverted");
+        reloadFile();
+    }
+  }
+
   const saveFile = () => {
     setIsSaving(true);
     safeFetch('/api/files/write', {
@@ -302,8 +335,29 @@ export default function SourceCodeView({ language = 'pt' }: { language?: Languag
 
     if (lastWord.length >= 2) {
       autocompleteTimeoutRef.current = setTimeout(async () => {
-        // Semantic Search via /api/files/search (Symbol-aware)
-        const resp = await safeFetch(`/api/files/search?query=${lastWord}&includeSymbols=true&filepath=${encodeURIComponent(customPath || activeTab.file)}`);
+        let resp: any = { matches: [] };
+        let isSnippet = false;
+
+        if (lastWord.startsWith('#snippet:')) {
+          const query = lastWord.substring(9);
+          if (query.length < 3) return; // Wait for more query
+          isSnippet = true;
+          const snipResp = await safeFetch('/api/ai/generate-snippet', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query })
+          });
+          if (snipResp.snippet) {
+            resp.matches = [{ path: snipResp.snippet, type: 'Snippet', reason: 'AI Generated' }];
+          }
+        } else {
+          // Semantic Search via /api/ai/search-files
+          resp = await safeFetch('/api/ai/search-files', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: lastWord })
+          });
+        }
         
         if (resp.matches && resp.matches.length > 0) {
           // Simple position estimation (not perfect for textarea but works roughly)
@@ -524,22 +578,21 @@ export default function SourceCodeView({ language = 'pt' }: { language?: Languag
                {customPath || activeTab.file}
             </span>
             <div className="flex gap-2">
-                 <button 
-                  onClick={runAuditor}
-                  disabled={isAuditing}
-                  className="bg-orange-600/10 hover:bg-orange-600/20 border border-orange-500/30 text-orange-400 text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-xl transition-all shadow-sm flex items-center gap-2 group/auditor"
-                 >
+                 <button onClick={() => setActiveSubTab('editor')} className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeSubTab === 'editor' ? 'bg-slate-800 text-white' : 'bg-transparent text-slate-500'}`}>Editor</button>
+                 <button onClick={() => { setActiveSubTab('audit'); performCodeAudit(); }} className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeSubTab === 'audit' ? 'bg-slate-800 text-white' : 'bg-transparent text-slate-500'}`}>Audit</button>
+                 <button onClick={() => { setActiveSubTab('git'); fetchGitLog(); }} className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeSubTab === 'git' ? 'bg-slate-800 text-white' : 'bg-transparent text-slate-500'}`}>Git</button>
+                 <button onClick={runAuditor} disabled={isAuditing} className="bg-orange-600/10 hover:bg-orange-600/20 border border-orange-500/30 text-orange-400 text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-xl transition-all shadow-sm flex items-center gap-2 group/auditor">
                    {isAuditing ? <Loader2 size={12} className="animate-spin" /> : <BrainCircuit size={14} className="group-hover/auditor:rotate-12 transition-transform" /> }
-                   Cortex Auditor
+                   Audit
                  </button>
                  <button className="bg-white text-black text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-xl transition-all shadow-lg hover:bg-slate-100 flex items-center gap-2">
                     <Play size={12} fill="black" /> {t.compile}
                  </button>
             </div>
          </div>
-         
          <div className="flex-1 flex gap-6 min-h-0 relative">
-             <div className="flex-1 flex flex-col min-w-0 relative">
+             {activeSubTab === 'editor' && (
+              <div className="flex-1 flex flex-col min-w-0 relative">
                 <textarea 
                   ref={textareaRef}
                   value={code}
@@ -548,7 +601,6 @@ export default function SourceCodeView({ language = 'pt' }: { language?: Languag
                   className="flex-1 w-full bg-[#050506] border border-[#1e2126] rounded-2xl p-6 text-[#a3b1c6] font-mono text-sm focus:outline-none focus:border-blue-500/50 resize-none whitespace-pre shadow-inner custom-scrollbar"
                   spellCheck="false"
                 />
-
                 <AnimatePresence>
                   {autocomplete.show && (
                     <motion.div 
@@ -597,7 +649,43 @@ export default function SourceCodeView({ language = 'pt' }: { language?: Languag
                       {isSaving ? t.saving : t.saveLocal}
                    </button>
                 </div>
-             </div>
+              </div>
+             )}
+             {activeSubTab === 'git' && (
+                <div className="flex-1 p-6 bg-[#0a0b0d] border border-[#1e2126] rounded-2xl flex flex-col gap-4 overflow-y-auto custom-scrollbar">
+                    <div className="flex justify-between items-center">
+                        <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <History className="text-blue-500" size={16}/> Git History
+                        </h3>
+                        <button 
+                            className="bg-red-500/10 text-red-400 px-3 py-1.5 text-[10px] uppercase font-bold rounded hover:bg-red-500/20"
+                            onClick={() => revertFile(customPath || activeTab.file)}
+                        >
+                            Revert Active File
+                        </button>
+                    </div>
+                    <div className="flex-1 space-y-2">
+                        {gitLog.map((log, i) => (
+                            <div key={i} className="border-b border-white/5 pb-2 text-xs hover:bg-white/5 p-2 rounded">
+                                <span className="font-mono text-blue-400">{log.hash}</span>
+                                <span className="text-slate-400 ml-2">{log.message}</span>
+                                <span className="text-slate-600 block text-[10px]">{log.author} - {log.date}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="flex gap-2">
+                        <input 
+                            type="text"
+                            placeholder="Commit message..."
+                            value={commitMessage}
+                            onChange={(e) => setCommitMessage(e.target.value)}
+                            className="flex-1 bg-[#111317] border border-[#1e2126] p-2 rounded text-xs text-white outline-none focus:border-blue-500"
+                        />
+                        <button className="bg-blue-600 px-4 py-2 text-xs text-white uppercase font-bold rounded hover:bg-blue-500" onClick={commitChanges}>Commit</button>
+                    </div>
+                </div>
+             )}
+          </div>
 
              <AnimatePresence>
                {auditReport && (
@@ -660,6 +748,5 @@ export default function SourceCodeView({ language = 'pt' }: { language?: Languag
              </AnimatePresence>
           </div>
       </div>
-    </div>
   );
 }
