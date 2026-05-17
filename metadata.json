@@ -1,0 +1,8 @@
+{
+  "name": "Remix: PaperMu",
+  "description": "Painel de controle online para servidores de Mu Online (PaperMu), com suporte nativo a cross-plataforma e placas embarcadas (Raspberry Pi/Orange Pi).",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
