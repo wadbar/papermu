@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import { 
   ArrowLeft, Box, Copy, Check, Terminal, Search, 
-  Layers, Package, Shield, Sword, User, Zap, Activity 
+  Layers, Package, Shield, Sword, User, Zap, Activity,
+  Download, Sparkles, BrainCircuit, Loader2
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { motion, AnimatePresence } from 'motion/react';
+import { safeFetch } from '../lib/utils';
 
 export default function ItemEditor({ onBack }: { onBack: () => void }) {
   const [item, setItem] = useState({
@@ -33,6 +36,41 @@ export default function ItemEditor({ onBack }: { onBack: () => void }) {
   });
 
   const [isCopied, setIsCopied] = useState(false);
+  const [isForging, setIsForging] = useState(false);
+  const [forgePrompt, setForgePrompt] = useState("");
+
+  const forgeItemWithAI = async () => {
+    if (!forgePrompt.trim()) return;
+    setIsForging(true);
+    try {
+      const res = await safeFetch('/api/ai/generate-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: forgePrompt })
+      });
+      
+      if (res.success) {
+        setItem(prev => ({
+          ...prev,
+          name: res.name || prev.name,
+          type: res.type === 'Sword' ? 0 : prev.type,
+          dmgMin: typeof res.stats?.damage === 'string' ? parseInt(res.stats.damage) || prev.dmgMin : prev.dmgMin,
+          speed: res.stats?.attackSpeed || prev.speed,
+          dur: res.stats?.durability || prev.dur,
+          reqStr: res.stats?.reqStr || prev.reqStr,
+          reqAgi: res.stats?.reqAgi || prev.reqAgi,
+          reqEne: res.stats?.reqEne || prev.reqEne
+        }));
+        toast.success(`Eletro-forja concluída: ${res.name}`);
+      } else {
+        toast.error("O Núcleo de Forja falhou.");
+      }
+    } catch (e) {
+      toast.error("Erro na conexão Neural.");
+    } finally {
+      setIsForging(false);
+    }
+  };
 
   const generateItemTxtLine = () => {
     const cw = item.classes.join(' ');
@@ -45,6 +83,78 @@ export default function ItemEditor({ onBack }: { onBack: () => void }) {
     setIsCopied(true);
     toast.success('Linha Item.txt copiada!');
     setTimeout(() => setIsCopied(false), 2000);
+  };
+
+  const handleExportBmd = () => {
+    try {
+      const entrySize = 84; // Tamanho padrão de entrada Item.bmd (Season 6)
+      const buffer = new ArrayBuffer(entrySize);
+      const view = new DataView(buffer);
+      const uint8 = new Uint8Array(buffer);
+
+      // 0-29: Nome do Item (char[30])
+      const nameStr = item.name.substring(0, 29);
+      for (let i = 0; i < 30; i++) {
+        view.setUint8(i, i < nameStr.length ? nameStr.charCodeAt(i) : 0);
+      }
+
+      // Offsets baseados na estrutura clássica de Item.bmd
+      view.setUint8(30, item.x > 1 ? 1 : 0); // estimativa de Two-Handed
+      view.setUint8(31, item.level);
+      view.setUint8(32, item.slot);
+      view.setUint8(33, item.skill);
+      view.setUint8(34, item.x);
+      view.setUint8(35, item.y);
+      view.setUint8(36, item.serial);
+      view.setUint8(37, item.option);
+      view.setUint8(38, item.drop);
+      
+      //WORD fields (Little Endian)
+      view.setUint16(39, item.dmgMin, true);
+      view.setUint16(41, item.dmgMax, true);
+      view.setUint16(43, item.speed, true);
+      
+      view.setUint8(45, item.dur);
+      view.setUint8(46, item.magicDur);
+      view.setUint8(47, 0); // Magic Power placeholder
+      
+      view.setUint16(48, item.reqLevel, true);
+      view.setUint16(50, item.reqStr, true);
+      view.setUint16(52, item.reqAgi, true);
+      view.setUint16(54, item.reqEne, true);
+      view.setUint16(56, item.reqVit, true);
+      view.setUint16(58, item.reqCmd, true); // Command/Leadership
+      view.setUint16(60, item.reqCmd, true); // Padding/Duplicate
+      
+      view.setUint8(62, 0); // Set Attribute
+      
+      // Classes (Offsets 63-69)
+      item.classes.forEach((val, idx) => {
+        view.setUint8(63 + idx, val);
+      });
+
+      // Criptografia XOR BMD (Chave Clássica: 0xFC, 0xCF, 0xAB)
+      const key = [0xFC, 0xCF, 0xAB];
+      for (let i = 0; i < uint8.length; i++) {
+        uint8[i] ^= key[i % 3];
+      }
+
+      // Download do arquivo
+      const blob = new Blob([buffer], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Item_${item.name.replace(/\s+/g, '_')}.bmd`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success('Item.bmd binário exportado!');
+    } catch (error) {
+      console.error('Bmd Export Error:', error);
+      toast.error('Erro ao gerar binário.');
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -76,6 +186,9 @@ export default function ItemEditor({ onBack }: { onBack: () => void }) {
           </div>
         </div>
         <div className="flex gap-2">
+           <button onClick={handleExportBmd} className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors border border-blue-500 flex items-center gap-2">
+             <Download size={16} /> Exportar Item.bmd
+           </button>
            <button onClick={handleCopy} className="bg-[#1e2126] hover:bg-[#2a2d35] text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors border border-[#2a2d35] flex items-center gap-2">
              {isCopied ? <Check size={16} className="text-green-500" /> : <Layers size={16} />} Copiar Item.txt
            </button>
@@ -84,10 +197,34 @@ export default function ItemEditor({ onBack }: { onBack: () => void }) {
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 overflow-hidden">
         {/* Item List Proxy */}
-        <div className="lg:col-span-1 bg-[#0a0b0d] border border-[#1e2126] rounded-2xl flex flex-col p-5 overflow-hidden">
-          <div className="mb-6">
-            <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3">Navegador de Itens</h3>
-            <div className="relative">
+        <div className="lg:col-span-1 bg-[#0a0b0d] border border-[#1e2126] rounded-2xl flex flex-col p-5 overflow-hidden gap-6">
+          <div>
+            <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+               <Sparkles size={12} /> Neural Item Forge
+            </h3>
+            <div className="bg-blue-600/5 border border-blue-500/20 rounded-xl p-4 space-y-3 shadow-inner">
+               <p className="text-[10px] text-slate-500 leading-relaxed font-medium">Descreva o item e a IA ajustará os parâmetros automaticamente.</p>
+               <input 
+                  type="text"
+                  placeholder="Ex: Espada de chamas..."
+                  value={forgePrompt}
+                  onChange={(e) => setForgePrompt(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && forgeItemWithAI()}
+                  className="w-full bg-[#111317] border border-[#1e2126] rounded-lg px-3 py-2 text-[11px] text-white outline-none focus:border-blue-500 transition-all font-sans"
+               />
+               <button 
+                  onClick={forgeItemWithAI}
+                  disabled={isForging || !forgePrompt.trim()}
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black text-[9px] uppercase tracking-widest py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-30"
+               >
+                  {isForging ? <Loader2 size={12} className="animate-spin" /> : <><BrainCircuit size={12} /> Forjar Item</>}
+               </button>
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3 px-1">Navegador de Itens</h3>
+            <div className="relative mb-3">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
               <input 
                 type="text" 
@@ -95,8 +232,7 @@ export default function ItemEditor({ onBack }: { onBack: () => void }) {
                 className="w-full bg-[#111317] border border-[#1e2126] rounded-xl px-9 py-2.5 text-xs text-white focus:border-blue-500 outline-none" 
               />
             </div>
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
              <div className="bg-blue-600/10 text-blue-500 p-3 rounded-xl text-[11px] cursor-pointer font-bold border border-blue-500/20 flex items-center gap-3">
                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
                0 0 - Kris
@@ -113,8 +249,9 @@ export default function ItemEditor({ onBack }: { onBack: () => void }) {
              ))}
           </div>
         </div>
+      </div>
 
-        {/* Editor Area */}
+      {/* Editor Area */}
         <div className="lg:col-span-3 bg-[#0a0b0d] border border-[#1e2126] rounded-2xl p-8 overflow-y-auto custom-scrollbar">
           <div className="flex flex-col md:flex-row gap-8 mb-12">
              <div className="w-32 h-32 bg-[#111317] border border-[#1e2126] rounded-2xl flex flex-col justify-center items-center shrink-0 shadow-2xl relative group cursor-pointer transition-transform hover:scale-105 active:scale-95">

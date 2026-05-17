@@ -21,5 +21,17 @@ export default defineConfig(({mode}) => {
       hmr: false,
       ws: false,
     },
+    build: {
+      target: 'esnext',
+      minify: 'esbuild',
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom'],
+            'vendor-ui': ['lucide-react', 'motion/react', 'recharts']
+          }
+        }
+      }
+    }
   };
 });

@@ -4,6 +4,7 @@ import { open, Database } from 'sqlite';
 import path from "path";
 import { telemetry } from './telemetry.service';
 import logger from './logger';
+import { eventBus } from './eventBus';
 import { DatabaseResult } from '../types';
 
 export abstract class DatabaseProvider {
@@ -102,14 +103,33 @@ export class MSSQLProvider extends DatabaseProvider {
   }
 
   async connect() {
-    try {
-      if (this.pool) await this.pool.close();
-      this.pool = await sql.connect(this.config);
-      logger.info("[DB] MSSQL connected.");
-    } catch (err: any) {
-      logger.error("[DB] MSSQL connection failed", { error: err.message });
-      throw err;
-    }
+    let attempts = 0;
+    const maxAttempts = 3;
+    const backoff = 2000;
+
+    const tryConnect = async () => {
+      try {
+        if (this.pool) await this.pool.close();
+        this.pool = await sql.connect(this.config);
+        logger.info("[DB] MSSQL connected and pooled.");
+      } catch (err: any) {
+        attempts++;
+        if (attempts < maxAttempts) {
+          logger.warn(`[DB] MSSQL connection attempt ${attempts} failed. Retrying in ${backoff}ms...`);
+          await new Promise(resolve => setTimeout(resolve, backoff * attempts));
+          return tryConnect();
+        }
+        logger.error("[DB] MSSQL connection failed after max attempts", { error: err.message });
+        eventBus.emitAlert({
+          type: 'DATABASE_FAILURE',
+          severity: 'CRITICAL',
+          message: `Falha crítica ao conectar no SQL Server após ${maxAttempts} tentativas. Verifique as credenciais e o status do serviço SQL.`
+        });
+        throw err;
+      }
+    };
+
+    return tryConnect();
   }
 
   async close() {

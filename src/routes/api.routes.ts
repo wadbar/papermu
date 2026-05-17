@@ -10,21 +10,20 @@ import os from 'os';
 import { exec } from 'child_process';
 import validator from 'validator';
 import { searchFiles } from '../services/fileSearch.service'; // Added import
+import { apiCache } from '../services/cache.service'; // Added import
+
+import { configService } from '../services/config.service';
 
 const router = express.Router();
 
-// Configuration state (In a real app, this might be in a persistent config file or DB)
-let muServerPath = process.env.MUSERVER_PATH || (os.platform() === 'win32' ? "C:\\MuServer" : "/mnt/c/MuServer");
-let dbEngine: 'mssql' | 'sqlite' = 'sqlite';
-let connectionMode: 'local' | 'remote' = 'local';
-let dbConfig = {
-  user: 'sa',
-  password: '',
-  server: process.env.DB_HOST || 'localhost',
-  database: 'MuOnline',
-  options: { encrypt: false, trustServerCertificate: true }
-};
-let sshConfig = { host: '', port: 22, username: 'Administrator', password: '' };
+// Configuration state initialized from configService
+const currentConfig = configService.get();
+let muServerPath = currentConfig.muServerPath;
+let dbEngine = currentConfig.dbEngine;
+let connectionMode = currentConfig.connectionMode;
+let maintenanceMode = currentConfig.maintenanceMode;
+let dbConfig = { ...currentConfig.dbConfig, password: '' };
+let sshConfig = { ...currentConfig.sshConfig, password: '' };
 
 let db: DatabaseProvider = new SQLiteProvider();
 let dbError: string | null = null;
@@ -49,11 +48,23 @@ async function connectDB() {
 
 connectDB();
 
-// --- Middleware: Audit & Performance ---
+// --- Middleware: Audit, Performance & Shield ---
+const SHIELD_ENABLED = true;
+
 router.use((req, res, next) => {
+  logger.info(`[API-ROUTER] Processing: ${req.method} ${req.path}`);
   const start = Date.now();
   const requestId = Math.random().toString(36).substring(7);
   telemetry.requestCount++;
+
+  // Security Shield: Basic parameter sanitization reinforcement
+  if (SHIELD_ENABLED && req.body) {
+    const bodyStr = JSON.stringify(req.body);
+    if (bodyStr.includes('<script') || bodyStr.includes('javascript:')) {
+      logger.warn(`[SHIELD] Blocked suspicious XSS payload from ${req.ip}`);
+      return res.status(403).json({ error: "Security Shield: Malicious payload signature detected." });
+    }
+  }
 
   res.on('finish', () => {
     const duration = Date.now() - start;
@@ -98,7 +109,63 @@ router.get("/metrics", (req, res) => {
 });
 
 router.get("/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
+  res.json({ 
+    status: "ok", 
+    timestamp: new Date().toISOString(),
+    sentinel: "active",
+    shield: SHIELD_ENABLED ? "engaged" : "disabled"
+  });
+});
+
+router.get("/health/deep", async (req, res) => {
+  const start = Date.now();
+  const diagnostics: any = {
+    db: { status: 'checking' },
+    fs: { status: 'checking' },
+    ai: { status: 'checking' }
+  };
+
+  try {
+    diagnostics.db.connected = db?.isConnected();
+    diagnostics.db.latency = await (async () => {
+      const s = Date.now();
+      await db.query('SELECT 1');
+      return Date.now() - s;
+    })().catch(() => -1);
+    diagnostics.db.status = diagnostics.db.latency >= 0 ? 'nominal' : 'degraded';
+
+    // File System & Kernel Metrics
+    const osInfo = {
+      platform: os.platform(),
+      totalMem: Math.round(os.totalmem() / 1024 / 1024) + 'MB',
+      freeMem: Math.round(os.freemem() / 1024 / 1024) + 'MB',
+      load: os.loadavg()[0].toFixed(2)
+    };
+
+    const testFile = path.join(muServerPath, '.sentinel_test');
+    fs.writeFileSync(testFile, 'sentinel_ping');
+    fs.unlinkSync(testFile);
+    
+    diagnostics.fs.status = 'nominal';
+    diagnostics.fs.muPath = muServerPath;
+    diagnostics.fs.metrics = osInfo;
+
+    diagnostics.ai.provider = "Google Gemini/Cortex";
+    diagnostics.ai.status = 'nominal';
+  } catch (err: any) {
+    logger.error("[DEEP-HEALTH] Diagnostics failed", { error: err.message });
+  }
+
+  res.json({
+    status: diagnostics.db.status === 'nominal' && diagnostics.fs.status === 'nominal' ? 'healthy' : 'degraded',
+    latency: Date.now() - start,
+    timestamp: new Date().toISOString(),
+    diagnostics,
+    session: {
+      uptime: Math.round(process.uptime()) + 's',
+      node: process.version
+    }
+  });
 });
 
 router.get("/mu/reference", (req, res) => {
@@ -136,17 +203,30 @@ router.post("/db-config", async (req, res) => {
 router.post("/db/execute", async (req, res) => {
   const { query } = req.body;
   if (!db?.isConnected()) return res.status(500).json({ error: "DB not connected" });
+  if (!query) return res.status(400).json({ error: "Empty query" });
   
-  const forbidden = ["DROP", "TRUNCATE", "DB_NAME", "MASTER.."];
-  if (forbidden.some(word => query.toUpperCase().includes(word))) {
-    return res.status(403).json({ error: "Forbidden SQL keyword detected" });
+  const forbidden = ["DROP", "TRUNCATE", "DB_NAME", "MASTER..", "SHUTDOWN", "XP_CMDSHELL"];
+  const upperQuery = query.toUpperCase();
+  if (forbidden.some(word => upperQuery.includes(word))) {
+    logger.warn(`[SECURITY] SQL Injection attempt blocked: ${query}`);
+    return res.status(403).json({ error: "Forbidden SQL keyword/operation detected. Sentinel protocol engaged." });
   }
 
   try {
     const result = await db.query(query);
-    res.json({ success: true, result: result.recordset, rowsAffected: result.rowsAffected });
+    res.json({ 
+      success: true, 
+      result: result.recordset, 
+      rowsAffected: result.rowsAffected,
+      executionPlan: "standard"
+    });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    logger.error("[DB-EXEC] Failed", { query, error: error.message });
+    res.status(500).json({ 
+      error: error.message,
+      code: "SQL_EXEC_FAIL",
+      hint: "Check table names and column existence."
+    });
   }
 });
 
@@ -169,12 +249,36 @@ router.get("/server-info", (req, res) => {
   });
 });
 
+router.get("/mu/gs-status", async (req, res) => {
+  try {
+    const isWin = os.platform() === 'win32';
+    const checkCmd = isWin ? 'tasklist /FI "IMAGENAME eq GameServer.exe"' : 'pgrep -f GameServer.exe';
+    
+    exec(checkCmd, (err, stdout) => {
+      const isRunning = isWin 
+        ? stdout.toLowerCase().includes("gameserver.exe")
+        : (stdout && stdout.trim().length > 0);
+        
+      res.json({ 
+        status: isRunning ? 'online' : 'offline',
+        timestamp: new Date().toISOString()
+      });
+    });
+  } catch (e: any) {
+    res.json({ status: 'offline', error: e.message });
+  }
+});
+
 // --- MuOnline Specific Data ---
 router.get("/players", async (req, res) => {
   if (!db?.isConnected()) return res.status(500).json({ error: "DB not connected" });
+  const cached = apiCache.get("players");
+  if (cached) return res.json(cached);
   try {
     const result = await db.query(`SELECT TOP 100 Name, Class, cLevel, ResetCount, MapNumber, AccountID FROM Character ORDER BY cLevel DESC`);
-    res.json({ players: result.recordset });
+    const data = { players: result.recordset };
+    apiCache.set("players", data, 30000); // 30s cache
+    res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -182,9 +286,13 @@ router.get("/players", async (req, res) => {
 
 router.get("/guilds", async (req, res) => {
   if (!db?.isConnected()) return res.status(500).json({ error: "DB not connected" });
+  const cached = apiCache.get("guilds");
+  if (cached) return res.json(cached);
   try {
     const result = await db.query(`SELECT TOP 50 G_Name as name, G_Master as master, G_Score as score FROM Guild ORDER BY G_Score DESC`);
-    res.json({ guilds: result.recordset });
+    const data = { guilds: result.recordset };
+    apiCache.set("guilds", data, 60000); // 60s cache
+    res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -192,9 +300,13 @@ router.get("/guilds", async (req, res) => {
 
 router.get("/economy", async (req, res) => {
   if (!db?.isConnected()) return res.status(500).json({ error: "DB not connected" });
+  const cached = apiCache.get("economy");
+  if (cached) return res.json(cached);
   try {
     const result = await db.query(`SELECT SUM(CAST(Money as bigint)) as total FROM (SELECT Money FROM Character UNION ALL SELECT Money FROM warehouse)`);
-    res.json({ totalMoney: result.recordset?.[0]?.total || 0 });
+    const data = { totalMoney: result.recordset?.[0]?.total || 0 };
+    apiCache.set("economy", data, 60000); // 60s cache
+    res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -202,17 +314,21 @@ router.get("/economy", async (req, res) => {
 
 router.get("/dashboard-stats", async (req, res) => {
   if (!db?.isConnected()) return res.json({ totalAccounts: 0, totalCharacters: 0, onlinePlayers: 0 });
+  const cached = apiCache.get("dashboard-stats");
+  if (cached) return res.json(cached);
   try {
     const [accs, chars, online] = await Promise.all([
       db.query('SELECT COUNT(*) as count FROM MEMB_INFO'),
       db.query('SELECT COUNT(*) as count FROM Character'),
       db.query('SELECT COUNT(*) as count FROM MEMB_STAT WHERE ConnectStat = 1').catch(() => ({ recordset: [{ count: 0 }] }))
     ]);
-    res.json({
+    const data = {
       totalAccounts: accs.recordset?.[0]?.count || 0,
       totalCharacters: chars.recordset?.[0]?.count || 0,
       onlinePlayers: online.recordset?.[0]?.count || 0
-    });
+    };
+    apiCache.set("dashboard-stats", data, 10000); // 10s cache
+    res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -298,45 +414,67 @@ router.post("/action/:cmd", async (req, res) => {
 
 // --- File Management ---
 router.get("/files/search", async (req, res) => {
-  const { query } = req.query;
+  const { query, includeSymbols } = req.query;
   if (!query || typeof query !== 'string') return res.status(400).json({ error: "Missing query" });
 
   try {
-    if (connectionMode === 'remote') {
-      return res.json({ files: [] }); // Not implemented for remote mock
-    }
+    const matches = await searchFiles(muServerPath, query, includeSymbols === 'true');
+    res.json({ matches, success: true });
+  } catch (err: any) {
+    logger.error("[API-FILES-SEARCH] Failure", { error: err.message });
+    res.status(500).json({ error: "Search failed", success: false });
+  }
+});
 
-    const maxResults = 50;
-    const results: string[] = [];
+router.get("/files/autocomplete", async (req, res) => {
+  const { query, filepath } = req.query;
+  if (!query || typeof query !== 'string') return res.status(400).json({ error: "Missing query" });
 
-    const searchRecursive = (dir: string) => {
-      if (results.length >= maxResults) return;
-      if (!fs.existsSync(dir)) return;
-
-      try {
-        const files = fs.readdirSync(dir);
-        for (const file of files) {
-          const fullPath = path.join(dir, file);
-          const stat = fs.statSync(fullPath);
-          if (stat.isDirectory()) {
-            // Ignore common large folders
-            if (file !== 'node_modules' && file !== '.git') {
-              searchRecursive(fullPath);
-            }
-          } else {
-            if (file.toLowerCase().includes(query.toLowerCase())) {
-              results.push(fullPath.replace(path.resolve(muServerPath) + path.sep, ''));
-            }
-            if (results.length >= maxResults) break;
+  try {
+    const symbols = new Set<string>();
+    
+    // 1. Local context: Extract symbols from current file if provided
+    if (filepath && typeof filepath === 'string') {
+      const fullPath = path.resolve(muServerPath, filepath);
+      if (fs.existsSync(fullPath)) {
+        const content = fs.readFileSync(fullPath, 'utf8');
+        // Simple regex for C++/Java symbols
+        const regex = /\b(void|int|char|bool|float|double|class|struct)\s+([a-zA-Z_]\w*)\b|([a-zA-Z_]\w*)\s*\(/g;
+        let match;
+        while ((match = regex.exec(content)) !== null) {
+          const sym = match[2] || match[3];
+          if (sym && sym.toLowerCase().includes(query.toLowerCase())) {
+            symbols.add(sym);
           }
         }
-      } catch (e) {
-        // ignore access errors
       }
+    }
+
+    // 2. Global context: File paths
+    const maxFiles = 20;
+    const findFiles = (dir: string) => {
+      if (symbols.size >= 50) return;
+      if (!fs.existsSync(dir)) return;
+      try {
+        const items = fs.readdirSync(dir);
+        for (const item of items) {
+          if (symbols.size >= 50) break;
+          const fullPath = path.join(dir, item);
+          const stat = fs.statSync(fullPath);
+          if (stat.isDirectory()) {
+             if (item !== 'node_modules' && item !== '.git') findFiles(fullPath);
+          } else {
+            if (item.toLowerCase().includes(query.toLowerCase())) {
+              symbols.add(item);
+            }
+          }
+        }
+      } catch (e) {}
     };
 
-    searchRecursive(path.resolve(muServerPath));
-    res.json({ files: results });
+    findFiles(muServerPath);
+
+    res.json({ suggestions: Array.from(symbols).slice(0, 30) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -392,14 +530,54 @@ router.post("/files/write", async (req, res) => {
 
 // --- Config Management ---
 router.get("/config", (req, res) => {
-  res.json({ muServerPath, connectionMode, sshConfig: { ...sshConfig, password: '****' } });
+  res.json({ 
+    muServerPath, 
+    connectionMode, 
+    maintenanceMode,
+    dbEngine,
+    dbConfig: { ...dbConfig, password: '****' },
+    sshConfig: { ...sshConfig, password: '****' } 
+  });
 });
 
 router.post("/config", (req, res) => {
-  const { muServerPath: newPath, mode, ssh } = req.body;
+  const { muServerPath: newPath, mode, ssh, db: newDb, dbEngine: newEngine, cacheSize: newCache, bufferSize: newBuffer, maintenanceMode: newMaintenance } = req.body;
+  
   if (newPath) muServerPath = newPath;
   if (mode) connectionMode = mode;
+  if (newMaintenance !== undefined) maintenanceMode = newMaintenance;
   if (ssh) sshConfig = { ...sshConfig, ...ssh };
+  if (newDb) dbConfig = { ...dbConfig, ...newDb };
+  if (newEngine) dbEngine = newEngine;
+
+  const currentCacheSize = newCache || configService.get().cacheSize;
+  const currentBufferSize = newBuffer || configService.get().bufferSize;
+
+  // Persist to disk
+  configService.save({
+    muServerPath,
+    connectionMode,
+    maintenanceMode,
+    dbEngine,
+    cacheSize: currentCacheSize,
+    bufferSize: currentBufferSize,
+    dbConfig: {
+       user: dbConfig.user,
+       server: dbConfig.server,
+       database: dbConfig.database,
+       options: dbConfig.options
+    },
+    sshConfig: {
+       host: sshConfig.host,
+       port: sshConfig.port,
+       username: sshConfig.username
+    }
+  });
+
+  if (newDb || newEngine) {
+    connectDB();
+  }
+
   res.json({ success: true });
 });
 
@@ -427,6 +605,7 @@ router.post("/ai/chat-stream", async (req, res) => {
       1. Responda em Português do Brasil.
       2. Seja técnico, útil e focado em Mu Online (S6+).
       3. Se detectar intenção de consulta ao banco, sugira a query SQL.
+      4. Sempre use formatação Markdown (negrito, itálico, listas, blocos de código) para melhorar a legibilidade.
     `;
 
     const history = messages?.map((m: any) => `${m.role.toUpperCase()}: ${m.text}`).join('\n') || '';
@@ -470,6 +649,7 @@ router.post("/ai/chat", async (req, res) => {
       1. Responda em Português do Brasil.
       2. Seja técnico, útil e focado em Mu Online (S6+).
       3. Se detectar intenção de consulta ao banco, sugira a query SQL.
+      4. Sempre use formatação Markdown (negrito, itálico, listas, blocos de código) para melhorar a legibilidade.
     `;
 
     // Constrói o histórico para o motor

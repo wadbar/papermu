@@ -13,7 +13,8 @@ export async function safeFetch(url: string, options?: RequestInit) {
     if (!response.ok) {
       if (contentType && contentType.includes("application/json")) {
         const errData = await response.json();
-        throw new Error(errData.error || errData.message || `HTTP ${response.status}`);
+        const errorMessage = typeof errData.error === 'object' ? errData.error.error || JSON.stringify(errData.error) : errData.error;
+        throw new Error(errorMessage || errData.message || `HTTP ${response.status}`);
       }
       throw new Error(`Server returned error ${response.status} (${response.statusText})`);
     }
@@ -24,7 +25,7 @@ export async function safeFetch(url: string, options?: RequestInit) {
     
     const text = await response.text();
     if (text.trim().startsWith("<!doctype") || text.trim().startsWith("<html")) {
-      throw new Error("API Indisponível no momento (Recebido HTML). O servidor pode estar reiniciando.");
+      throw new Error(`API Indisponível no momento em ${url} (Recebido HTML). O servidor pode estar reiniciando ou a rota está sendo interceptada pelo frontend.`);
     }
     
     return text;

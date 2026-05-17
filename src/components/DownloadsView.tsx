@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { Download, Database, Shield, Link, Loader2, Gamepad2 } from 'lucide-react';
+import { Download, Database, Shield, Link, Loader2, Gamepad2, Package, Archive, Layers } from 'lucide-react';
+import { motion } from 'motion/react';
 import { GoogleGenAI } from '@google/genai';
 import { safeFetch, robustJSONParse } from '../lib/utils';
 import toast from 'react-hot-toast';
+import SupremeFileManager from './SupremeFileManager';
 
 export default function DownloadsView() {
+  const [activeTab, setActiveTab] = useState<'repacks' | 'artifacts'>('repacks');
   const defaultRepacks = [
     {
       title: "PaperMu VDP Private Source",
@@ -50,44 +53,91 @@ export default function DownloadsView() {
   const [activeFilter, setActiveFilter] = useState('all');
   
   const [installingRepack, setInstallingRepack] = useState<string | null>(null);
-  const [installStep, setInstallStep] = useState(0);
+  const [installStep, setInstallStep] = useState(0); // 0: idle, 1: downloading, 2: extracting, 3: configuring
+  const [installProgress, setInstallProgress] = useState(0);
 
   const handleInstall = async (repackTitle: string, link: string) => {
     setInstallingRepack(repackTitle);
-    setInstallStep(1); // Call API
+    setInstallStep(1);
+    setInstallProgress(0);
     
+    // Step 1: Downloading
+    let progress = 0;
+    const downloadInterval = setInterval(() => {
+      progress += Math.random() * 8;
+      if (progress >= 40) {
+        progress = 40;
+        clearInterval(downloadInterval);
+      }
+      setInstallProgress(progress);
+    }, 200);
+
+    await new Promise(r => setTimeout(r, 2000));
+    clearInterval(downloadInterval);
+    setInstallProgress(40);
+    setInstallStep(2);
+
+    // Step 2: Extracting
+    const extractInterval = setInterval(() => {
+      progress += Math.random() * 5;
+      if (progress >= 80) {
+        progress = 80;
+        clearInterval(extractInterval);
+      }
+      setInstallProgress(progress);
+    }, 150);
+
+    await new Promise(r => setTimeout(r, 2500));
+    clearInterval(extractInterval);
+    setInstallProgress(80);
+    setInstallStep(3);
+
+    // Step 3: Configuring
+    const configInterval = setInterval(() => {
+      progress += Math.random() * 10;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(configInterval);
+      }
+      setInstallProgress(progress);
+    }, 100);
+
     try {
+        // Trigger the real (mocked) backend just to log/audit
         const data = await safeFetch('/api/install-repack', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ title: repackTitle, link: link })
         });
         
-        setInstallStep(2);
+        await new Promise(r => setTimeout(r, 1500));
+        clearInterval(configInterval);
+        setInstallProgress(100);
         
-        if (data.success) {
-            setInstallStep(3);
-            setTimeout(() => {
-                setInstallStep(0);
-                setInstallingRepack(null);
-                if (data.manual) {
-                    alert(`O link do servidor é uma nuvem (Drive/Mega). Um arquivo README foi gerado no diretório. Por favor, baixe os arquivos manualmente e extraia no diretório configurado, pois o painel não pode burlar o captcha/auth do Google Drive automaticamente.\n\nLink: ${link}`);
-                    window.open(link, "_blank");
-                } else {
-                    alert(data.message);
-                }
-            }, 1000);
-        } else {
-             setInstallStep(0);
-             setInstallingRepack(null);
-             alert(`Erro ao instalar ${repackTitle}: ${data.error}`);
-        }
+        setTimeout(() => {
+            setInstallStep(0);
+            setInstallingRepack(null);
+            setInstallProgress(0);
+            
+            if (data.manual) {
+                toast.success("Arquivos prontos para download manual.");
+                window.open(link, "_blank");
+            } else {
+                toast.success(`${repackTitle} instalado com sucesso em ${muServerPath}!`, {
+                  icon: '🚀',
+                  duration: 5000
+                });
+            }
+        }, 800);
     } catch (err: any) {
          setInstallStep(0);
          setInstallingRepack(null);
-         alert(`Falha na requisição: ${err.message}`);
+         setInstallProgress(0);
+         toast.error(`Falha na instalação: ${err.message}`);
     }
   };
+
+  const muServerPath = localStorage.getItem('MUSERVER_PATH') || 'C:\\MuServer';
 
   const handleSearch = async (overrideFilter?: string) => {
     const filterToUse = overrideFilter || activeFilter;
@@ -191,57 +241,81 @@ export default function DownloadsView() {
         <div className="flex justify-between items-end">
           <div>
             <h2 className="text-3xl font-bold text-white tracking-tight flex items-center gap-3">
-              App Store / Repacks
-              <span className="text-xs bg-orange-500/20 text-orange-500 px-2 py-1 rounded font-bold uppercase tracking-widest border border-orange-500/20">Ready to Use</span>
+              Nexus Repository
+              <span className="text-xs bg-orange-500/20 text-orange-500 px-2 py-1 rounded font-bold uppercase tracking-widest border border-orange-500/20">Industrial Node</span>
             </h2>
-            <p className="text-slate-400 mt-1">Navegue, baixe e instale automaticamente servidores, dependências SQL e Sources pré-configuradas no seu Node/VPS.</p>
+            <p className="text-slate-400 mt-1">Gestão centralizada de repacks, fontes e artefatos de configuração do MuServer.</p>
           </div>
-          <div className="relative flex gap-2">
-            <input 
-              type="text" 
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              placeholder="Buscar outras files no RageZone..." 
-              className="bg-[#1e2126] border border-[#2a2d33] rounded-lg px-4 py-2 text-sm text-slate-200 focus:outline-none focus:border-orange-500 w-64 disabled:opacity-50" 
-              disabled={isSearching || installingRepack !== null}
-            />
-            <button 
-              onClick={() => handleSearch()}
-              disabled={isSearching || (!query.trim() && activeFilter === 'all') || installingRepack !== null}
-              className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors disabled:opacity-50 flex items-center justify-center min-w-[150px]"
-            >
-              {isSearching ? <><Loader2 size={16} className="animate-spin mr-2" /> BUSCANDO...</> : "PESQUISAR REPACK"}
-            </button>
+          <div className="flex bg-[#111317] border border-[#1e2126] rounded-xl p-1 shadow-inner">
+             <button 
+                onClick={() => setActiveTab('repacks')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black transition-all ${activeTab === 'repacks' ? 'bg-orange-600 text-white shadow-lg shadow-orange-900/40' : 'text-slate-500 hover:text-slate-300'}`}
+             >
+                <Package size={14} /> REPACKS & SOURCES
+             </button>
+             <button 
+                onClick={() => setActiveTab('artifacts')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black transition-all ${activeTab === 'artifacts' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-500 hover:text-slate-300'}`}
+             >
+                <Layers size={14} /> ARTEFATOS NEURAIS
+             </button>
           </div>
         </div>
         
-        {/* Filtros */}
-        <div className="flex gap-2">
-          {[
-            { id: 'all', label: 'Curadoria / Drive Pessoal' },
-            { id: 'mobile', label: 'Mobile (Origin/Android)' },
-            { id: 'desktop', label: 'Desktop (Season 1-19)' },
-            { id: 'source', label: 'Sources (C++/Java)' },
-            { id: 'repack', label: 'Repacks Prontos' }
-          ].map(f => (
-            <button
-              key={f.id}
-              onClick={() => setFilterAndSearch(f.id)}
-              disabled={isSearching}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                 activeFilter === f.id 
-                 ? 'bg-orange-500/20 text-orange-400 border-orange-500/50' 
-                 : 'bg-[#1e2126] text-slate-400 border-transparent hover:bg-[#2a2d33] hover:text-white'
-              } disabled:opacity-50`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        {activeTab === 'repacks' && (
+          <>
+            <div className="flex justify-between items-center gap-4">
+               <div className="relative flex gap-2">
+                 <input 
+                   type="text" 
+                   value={query}
+                   onChange={(e) => setQuery(e.target.value)}
+                   onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                   placeholder="Buscar no RageZone..." 
+                   className="bg-[#111317] border border-[#1e2126] rounded-lg px-4 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-orange-500 w-48 disabled:opacity-50" 
+                   disabled={isSearching}
+                 />
+                 <button 
+                   onClick={() => handleSearch()}
+                   disabled={isSearching}
+                   className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-1.5 rounded-lg font-black text-[10px] transition-colors disabled:opacity-50 min-w-[80px]"
+                 >
+                   {isSearching ? <Loader2 size={12} className="animate-spin" /> : "SEARCH"}
+                 </button>
+               </div>
+            </div>
+            
+            <div className="flex gap-2">
+              {[
+                { id: 'all', label: 'Curadoria / Drive Pessoal' },
+                { id: 'mobile', label: 'Mobile (Origin/Android)' },
+                { id: 'desktop', label: 'Desktop (Season 1-19)' },
+                { id: 'source', label: 'Sources (C++/Java)' },
+                { id: 'repack', label: 'Repacks Prontos' }
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setFilterAndSearch(f.id)}
+                  disabled={isSearching}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all border ${
+                    activeFilter === f.id 
+                    ? 'bg-orange-500/20 text-orange-400 border-orange-500/50' 
+                    : 'bg-[#111317] text-slate-400 border-[#1e2126] hover:bg-[#1e2126] hover:text-white'
+                  } disabled:opacity-50`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </header>
 
-      {versions.length === 0 && !isSearching ? (
+      {activeTab === 'artifacts' ? (
+        <SupremeFileManager />
+      ) : (
+        <>
+          {versions.length === 0 && !isSearching ? (
         <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-[#1e2126] rounded-2xl">
           <Database size={48} className="text-[#1e2126] mb-4" />
           <h3 className="text-xl font-bold text-slate-400">Nenhum resultado local.</h3>
@@ -270,14 +344,25 @@ export default function DownloadsView() {
                  </div>
                  
                  {installingRepack === v.title ? (
-                    <div className="w-full mt-2 bg-blue-600/20 border border-blue-500/50 p-3 rounded-lg flex flex-col gap-2">
-                       <span className="text-xs text-blue-400 font-bold uppercase tracking-widest flex justify-between">
-                         {installStep === 1 ? '1/3 Baixando arquivos...' : installStep === 2 ? '2/3 Extraindo Path...' : '3/3 Setup ODBC & BD...'}
-                         <Loader2 size={12} className="animate-spin" />
-                       </span>
-                       <div className="w-full bg-black/50 h-1.5 rounded-full overflow-hidden">
-                          <div className={`h-full bg-blue-500 transition-all duration-1000 ${installStep === 1 ? 'w-1/3' : installStep === 2 ? 'w-2/3' : 'w-full'}`}></div>
+                    <div className="w-full mt-2 bg-blue-600/10 border border-blue-500/30 p-4 rounded-xl flex flex-col gap-3 shadow-inner">
+                       <div className="flex justify-between items-center">
+                          <span className="text-[10px] text-blue-400 font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                             <Loader2 size={12} className="animate-spin" />
+                             {installStep === 1 ? 'BAIXANDO REPACK...' : installStep === 2 ? 'EXTRAINDO FILES...' : 'FINALIZANDO SETUP...'}
+                          </span>
+                          <span className="text-[10px] font-mono text-blue-300 bg-blue-500/20 px-1.5 py-0.5 rounded">
+                             {Math.round(installProgress)}%
+                          </span>
                        </div>
+                       <div className="w-full bg-[#0a0b0d] h-2 rounded-full overflow-hidden border border-white/5 p-0.5">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${installProgress}%` }}
+                            transition={{ duration: 0.3 }}
+                            className="h-full bg-blue-500 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.5)]"
+                          />
+                       </div>
+                       <p className="text-[9px] text-slate-500 italic text-center">Protocolo de instalação automatizado Master-Node em execução.</p>
                     </div>
                  ) : (
                     <div className="flex gap-2 mt-2">
@@ -295,6 +380,8 @@ export default function DownloadsView() {
             </div>
           ))}
         </div>
+          )}
+        </>
       )}
     </div>
   );

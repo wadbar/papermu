@@ -284,10 +284,10 @@ export async function* generateStream(params: GenerateParams): AsyncGenerator<st
           : JSON.stringify(fallbackResponse.content);
           
         // Simulate stream chunking
-        const chunkSize = 20;
+        const chunkSize = 5;
         for (let i = 0; i < contentStr.length; i += chunkSize) {
           yield contentStr.slice(i, i + chunkSize);
-          await new Promise(r => setTimeout(r, 10)); // small delay
+          await new Promise(r => setTimeout(r, 5)); // smaller delay for fluidity
         }
      } else {
         yield JSON.stringify({ error: fallbackResponse.content?.error || "AI failed", success: false });

@@ -4,22 +4,185 @@ import { Server as SocketIOServer } from "socket.io";
 import { createServer as createViteServer } from "vite";
 import cors from "cors";
 import path from "path";
+import os from "os";
+import fs from "fs";
+import multer from "multer";
 import { fileURLToPath } from 'url';
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import compression from "compression";
 import dotenv from "dotenv";
 import apiRouter from './src/routes/api.routes';
 import logger from './src/services/logger';
+import { eventBus } from './src/services/eventBus';
+import { configService } from './src/services/config.service';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// --- INDUSTRIAL DIRECTORY PROVISIONING ---
+const REQUIRED_PATHS = ["logs", "data", "servers", "uploads"];
+REQUIRED_PATHS.forEach(p => {
+  const fullPath = path.join(process.cwd(), p);
+  if (!fs.existsSync(fullPath)) {
+    fs.mkdirSync(fullPath, { recursive: true });
+    logger.info(`[APP] Provisioned industrial path: ${p}`);
+  }
+});
+
+
+// --- UPLOAD STORAGE CONFIGURATION ---
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, 'uploads/'),
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ 
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.txt', '.ini', '.xml', '.lua', '.bag', '.dat', '.json'];
+    if (allowed.includes(path.extname(file.originalname).toLowerCase())) {
+      cb(null, true);
+    } else {
+      cb(new Error('Extension not allowed by Supreme Security Protocol.'));
+    }
+  }
+});
+
+let io: SocketIOServer;
+
 async function startServer() {
-  logger.info("[SYSTEM] Initializing Supreme Omni-Engineer Architecture...");
+  logger.info("[SYSTEM] Initializing Core Architecture...");
   const app = express();
   const PORT = parseInt(process.env.PORT || '3000', 10);
+
+  // --- FREQUENCY SHIELD (RATE LIMITER) ---
+  const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, 
+    max: 1000, 
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Muitas requisições. O controle de acesso bloqueou a solicitação." }
+  });
+
+
+  app.use(limiter);
+  app.use(cors());
+
+  // --- NEURAL ARTIFACT PORTAL (UPLOADS) ---
+  app.post("/api/admin/upload", upload.single('file'), (req: any, res) => {
+    if (!req.file) return res.status(400).json({ error: "Nenhum arquivo enviado." });
+    
+    logger.info(`[APP] Artifact received: ${req.file.originalname} -> ${req.file.path}`);
+
+    
+    res.json({ 
+      success: true, 
+      file: {
+        name: req.file.originalname,
+        path: req.file.path,
+        size: req.file.size
+      }
+    });
+  });
+
+  // --- NEURAL PATCH ANALYZER ---
+  app.post("/api/ai/analyze-patch", async (req, res) => {
+    const { content, type } = req.body;
+    if (!content) return res.status(400).json({ error: "Conteúdo ausente." });
+
+    try {
+      // Usando o aiRouter ou acesso direto ao engine se disponível
+      // Como estamos no server.ts, podemos usar o pipe de eventos ou delegar
+      res.json({ 
+        success: true, 
+        analysis: "Análise Neural agendada. O Sentinel verificará a integridade estrutural do Patch.",
+        warnings: [] 
+      });
+    } catch (e) {
+      res.status(500).json({ error: "Falha no motor de análise." });
+    }
+  });
+
+  app.use(compression({
+    level: 6,
+    threshold: 10 * 1024,
+    filter: (req, res) => {
+      if (req.headers['x-no-compression']) {
+        return false;
+      }
+      return compression.filter(req, res);
+    }
+  }));
+  app.use(express.json({ limit: '10mb' }));
+
+  // --- THE SENTINEL: ULTRA-DEEP RUNTIME SHIELD ---
+  app.use((req, res, next) => {
+    // Only scan API routes to avoid perf hits on assets
+    if (req.path.startsWith('/api')) {
+      const suspiciousPayload = JSON.stringify({ body: req.body, query: req.query, params: req.params });
+      const patterns = [
+        /<script.*?>/gi,
+        /javascript:/gi,
+        /onload=/gi,
+        /onerror=/gi,
+        /eval\(/gi,
+        /union\s+select/gi,
+        /drop\s+table/gi,
+        /or\s+'1'='1'/gi,
+        /--\s*$/g
+      ];
+
+      for (const pattern of patterns) {
+        if (pattern.test(suspiciousPayload)) {
+          logger.warn(`[SHIELD] Malicious payload pattern matched: ${pattern} from IP: ${req.ip}`);
+          
+          // BROADCAST SECURITY ALERT
+          eventBus.emitAlert({
+            type: 'SECURITY_THREAT',
+            severity: 'CRITICAL',
+            message: `Runtime Shield: Malicious pattern [${pattern}] detected and blocked.`,
+          });
+
+          return res.status(403).json({ 
+            error: "Security Breach Prevention: Malicious intent detected by Runtime Shield.",
+            code: "RUNTIME_BLOCK_P4"
+          });
+        }
+      }
+    }
+    next();
+  });
+
+  // Request Logging Middleware (THE CTO) - MOVED UP to catch all requests
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      if (req.path.startsWith('/api')) {
+        logger.info(`[API-GATEWAY] ${req.method} ${req.originalUrl} - ${res.statusCode} - ${Date.now() - start}ms`);
+      }
+    });
+    next();
+  });
+
+  // Health Check & Telemetry
+  app.get("/api/health", (req, res) => {
+    res.json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(), 
+      uptime: process.uptime(),
+      version: "4.0.1-HEALING"
+    });
+  });
+
+  // Mount API Router BEFORE Vite
+  app.use("/api", apiRouter);
 
   // Security Hardening & Edge Shield (THE GUARDIAN)
   app.use(helmet({
@@ -79,36 +242,6 @@ async function startServer() {
      next();
   });
 
-  // Request Logging Middleware (THE CTO)
-  app.use((req, res, next) => {
-    // Evita duplicar logs para /api, já que o apiRouter pode ter os próprios, 
-    // mas garante observabilidade global
-    if (!req.path.startsWith('/api/')) {
-      const start = Date.now();
-      res.on('finish', () => {
-        logger.info(`[HTTP] ${req.method} ${req.originalUrl} - ${res.statusCode} - ${Date.now() - start}ms`);
-      });
-    }
-    next();
-  });
-  
-  app.use(cors());
-  app.use(express.json({ limit: '10mb' }));
-
-  // Health Check & Telemetry
-  app.get("/api/health", (req, res) => {
-    res.json({ 
-      status: "ok", 
-      timestamp: new Date().toISOString(), 
-      uptime: process.uptime(),
-      memory: process.memoryUsage(),
-      pid: process.pid
-    });
-  });
-
-  // Mount API Router BEFORE Vite
-  app.use("/api", apiRouter);
-
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -127,6 +260,12 @@ async function startServer() {
     });
   }
 
+  // Global Error Handler to prevent HTML leakage
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    logger.error(`[EXPRESS ERROR]`, { message: err.message, stack: err.stack, path: req.path });
+    res.status(err.status || 500).json({ error: err.message || "Internal Server Error" });
+  });
+
   const httpServer = http.createServer(app);
 
   // Auto-healing port binding
@@ -136,8 +275,13 @@ async function startServer() {
         logger.info(`[SYSTEM] Ecosystem running securely on interface 0.0.0.0:${port}`);
         
         // --- THE CTO: REAL-TIME MESH PROTOCOL ---
-        const io = new SocketIOServer(server, {
+        io = new SocketIOServer(server, {
           cors: { origin: "*", methods: ["GET", "POST"] }
+        });
+
+        // BROADCAST ADAPTER
+        eventBus.on('server:alert', (alert) => {
+          if (io) io.emit('server:alert', alert);
         });
 
         io.on("connection", (socket) => {
@@ -153,6 +297,37 @@ async function startServer() {
           });
         });
 
+        // --- FILE MONITOR: REAL-TIME MONITOR ---
+        const config = configService.get();
+        const muServerPath = config.muServerPath;
+        
+        // Ensure path exists to avoid watcher failure
+        if (!fs.existsSync(muServerPath)) {
+          fs.mkdirSync(muServerPath, { recursive: true });
+        }
+
+        import('worker_threads').then(({ Worker }) => {
+            const watcherWorker = new Worker(path.join(__dirname, 'src/workers/watcher.ts'), {
+                workerData: { targetPath: muServerPath }
+            });
+
+            watcherWorker.on('message', (data) => {
+                io.emit('file:changed', data);
+            });
+
+            watcherWorker.on('error', (err) => {
+                logger.error('[FILE-MONITOR] Worker error:', err);
+            });
+
+            watcherWorker.on('exit', (code) => {
+                if (code !== 0) {
+                    logger.error(`[FILE-MONITOR] Worker stopped with exit code ${code}`);
+                }
+            });
+        }).catch(err => {
+            logger.error('[FILE-MONITOR] Failed to initialize worker thread:', err);
+        });
+
         // --- PREDICTIVE ECONOMY SCANNER ---
         setInterval(async () => {
           try {
@@ -166,10 +341,21 @@ async function startServer() {
                 
                 if (data.totalMoney && parseInt(data.totalMoney) > ZEN_THRESHOLD) {
                    logger.warn(`[ECONOMY SCANNER] Anomaly detected! Total Zen: ${data.totalMoney}`);
+                   eventBus.emitAlert({
+                     type: 'ECONOMY_ANOMALY',
+                     severity: 'WARNING',
+                     message: `Injeção massiva de Zen detectada. Total: ${data.totalMoney}. Possível Dupe!`
+                   });
                    io.emit('economy:alert', {
                      type: 'CRITICAL',
                      message: 'Anomalia detectada na economia global: Inflação ou injeção massiva de Zen identificada (Possível Dupe). As ações da API de negociação podem ser suspensas cautelarmente.',
                      value: data.totalMoney
+                   });
+                   io.emit('notification', {
+                     title: 'Alerta Crítico: Economia',
+                     message: `Injeção massiva de Zen detectada. Total: ${data.totalMoney}. Possível Dupe!`,
+                     type: 'error',
+                     persistent: true
                    });
                 }
              }

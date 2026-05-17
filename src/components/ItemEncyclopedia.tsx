@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Package, Plus, Filter, Info, ShoppingCart, Target, Sparkles, Loader2, Hammer, Zap, Sword, User, BookOpen, BrainCircuit, X, AlertCircle } from 'lucide-react';
+import { Search, Package, Plus, Filter, Info, ShoppingCart, Target, Sparkles, Loader2, Hammer, Zap, Sword, User, BookOpen, BrainCircuit, X, AlertCircle, Copy, Check, Terminal } from 'lucide-react';
 import { safeFetch } from '../lib/utils';
 import toast from 'react-hot-toast';
 import ReactMarkdown from 'react-markdown';
@@ -69,6 +69,16 @@ export default function ItemEncyclopedia() {
   const groups = useMemo(() => {
     return Array.from(new Set(items.map(i => i.group))).sort((a, b) => a - b);
   }, [items]);
+
+  const [isCopying, setIsCopying] = useState(false);
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setIsCopying(true);
+      toast.success("Copiado para o clipboard!");
+      setTimeout(() => setIsCopying(false), 2000);
+    });
+  };
 
   const forgeItem = async () => {
     if (!forgePrompt) return;
@@ -407,9 +417,24 @@ export default function ItemEncyclopedia() {
                   ))}
                </div>
 
-               <div className="bg-black/40 p-4 rounded-xl border border-[#1e2126] font-mono text-[10px] text-green-500 overflow-x-auto whitespace-nowrap shadow-inner customs-scrollbar">
-                  {forgedItem.itemTxtLine}
-               </div>
+                <div className="flex flex-col gap-2">
+                   <div className="flex justify-between items-center bg-[#050506] px-4 py-2 rounded-t-xl border-x border-t border-[#1e2126]">
+                      <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Procedural Item.txt Line</span>
+                      <button 
+                        onClick={() => copyToClipboard(forgedItem.itemTxtLine)}
+                        className="flex items-center gap-2 text-orange-500 hover:text-white transition-colors group/copy"
+                      >
+                         <span className="text-[8px] font-black uppercase tracking-widest">{isCopying ? 'COPIADO' : 'COPIAR'}</span>
+                         {isCopying ? <Check size={12} /> : <Copy size={12} className="group-hover/copy:scale-110 transition-transform" />}
+                      </button>
+                   </div>
+                   <div className="bg-black/60 p-5 rounded-b-xl border border-[#1e2126] font-mono text-[11px] text-green-500 overflow-x-auto whitespace-nowrap shadow-inner custom-scrollbar relative">
+                      <div className="absolute top-0 right-0 p-2 opacity-5 pointer-events-none">
+                         <Terminal size={40} />
+                      </div>
+                      {forgedItem.itemTxtLine}
+                   </div>
+                </div>
                
                <p className="mt-4 text-[9px] text-slate-600 italic flex items-center justify-end gap-2 font-black uppercase tracking-widest">
                   Power Factor: Balanced via Kernel AI <Target size={10} className="text-orange-500" />

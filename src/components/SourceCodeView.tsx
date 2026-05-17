@@ -1,7 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { Terminal, Search, Loader2, Play, BrainCircuit, Sparkles, ShieldCheck, AlertCircle, X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  FileCode, Search, Save, RefreshCw, Loader2, ChevronRight, AlertCircle, 
+  Terminal, ShieldCheck, Zap, BrainCircuit, X, Database, Check, History,
+  Play, Bug, ShieldAlert, Cpu, Network, Activity, Info, Code2, BellRing, Sparkles
+} from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'motion/react';
+import { wsService } from '../services/websocket.service';
 
 type Language = 'pt' | 'en';
 
@@ -69,7 +74,26 @@ export default function SourceCodeView({ language = 'pt' }: { language?: Languag
   const [searchQuery, setSearchQuery] = useState("");
   const [isAuditing, setIsAuditing] = useState(false);
   const [auditReport, setAuditReport] = useState<any>(null);
+  const [lastChange, setLastChange] = useState<{ path: string, event: string, timestamp: string } | null>(null);
+  const [currentFileModified, setCurrentFileModified] = useState(false);
+  const [activeSubTab, setActiveSubTab] = useState<'editor' | 'audit'>('editor');
 
+  // Autocomplete States
+  const [autocomplete, setAutocomplete] = useState<{
+    list: any[];
+    index: number;
+    show: boolean;
+    query: string;
+    pos: { top: number; left: number };
+  }>({
+    list: [],
+    index: 0,
+    show: false,
+    query: '',
+    pos: { top: 0, left: 0 }
+  });
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const t = i18n[language];
 
   const filteredResults = searchResults.filter(result => 
@@ -77,12 +101,74 @@ export default function SourceCodeView({ language = 'pt' }: { language?: Languag
   );
 
   useEffect(() => {
+     setCurrentFileModified(false);
      safeFetch(`/api/files/read?filepath=${encodeURIComponent(customPath || activeTab.file)}`)
        .then(d => {
          if (d.error) setCode(`${t.loadingError}${d.error}\n${t.searchInstruction}`);
          else setCode(d.content || "");
        });
   }, [activeTab, customPath, t]);
+
+  useEffect(() => {
+    const socket = wsService.getSocket();
+    
+    socket.on('file:changed', (data: any) => {
+      setLastChange(data);
+      
+      // Auto-clear notification after 5 seconds
+      setTimeout(() => {
+        setLastChange(current => current?.timestamp === data.timestamp ? null : current);
+      }, 5000);
+
+      // If the changed file is the one we are currently viewing, signaling with extra emphasis
+      const currentFile = customPath || activeTab.file;
+      const normalizedPath = osPlatform() === 'win32' ? data.path.replace(/\//g, '\\') : data.path;
+      
+      if (data.path === currentFile || normalizedPath === currentFile) {
+         setCurrentFileModified(true);
+         toast((t) => (
+            <div className="flex items-center gap-3 p-1">
+               <div className="bg-red-500 p-2 rounded-lg text-white">
+                  <AlertCircle size={18} />
+               </div>
+               <div className="flex flex-col">
+                  <p className="text-sm font-bold text-slate-800">File Changed Externally</p>
+                  <p className="text-xs text-slate-500">{data.path}</p>
+               </div>
+               <div className="flex gap-2 ml-4">
+                  <button 
+                    onClick={() => {
+                        reloadFile();
+                        toast.dismiss(t.id);
+                    }}
+                    className="bg-blue-600 text-white text-[10px] font-bold uppercase px-3 py-1.5 rounded-md hover:bg-blue-700 transition-colors"
+                  >
+                     Reload
+                  </button>
+                  <button 
+                    onClick={() => toast.dismiss(t.id)}
+                    className="bg-slate-100 text-slate-600 text-[10px] font-bold uppercase px-3 py-1.5 rounded-md hover:bg-slate-200 transition-colors"
+                  >
+                     Dismiss
+                  </button>
+               </div>
+            </div>
+         ), { 
+            duration: Infinity,
+            position: 'top-center'
+         });
+      }
+    });
+
+    return () => {
+      socket.off('file:changed');
+    };
+  }, [activeTab.file, customPath]);
+
+  // Helper for path normalization check
+  const osPlatform = () => {
+    return navigator.platform.toLowerCase().includes('win') ? 'win32' : 'linux';
+  };
 
   const searchFiles = async () => {
      if(!searchQuery.trim()) return;
@@ -136,6 +222,44 @@ export default function SourceCodeView({ language = 'pt' }: { language?: Languag
   const loadSearchedFile = (file: string) => {
      setCustomPath(file);
      setSearchResults([]);
+     setCurrentFileModified(false);
+  };
+
+  const performCodeAudit = async () => {
+    if (!code) return;
+    setIsAuditing(true);
+    setActiveSubTab('audit');
+    try {
+      const data = await safeFetch('/api/ai/audit-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+           code, 
+           filename: customPath || activeTab.file 
+        })
+      });
+      if (data.success) {
+        setAuditReport(data);
+        toast.success("Auditoria Neural concluída.");
+      } else {
+        toast.error("Motor de auditoria indisponível.");
+      }
+    } catch (err) {
+      toast.error("Erro na comunicação com o Kernel de IA.");
+    } finally {
+      setIsAuditing(false);
+    }
+  };
+
+  const reloadFile = () => {
+    safeFetch(`/api/files/read?filepath=${encodeURIComponent(customPath || activeTab.file)}`)
+      .then(d => {
+        if (!d.error) {
+          setCode(d.content || "");
+          setCurrentFileModified(false);
+          toast.success("File reloaded from disk.");
+        }
+      });
   };
 
   const saveFile = () => {
@@ -156,14 +280,153 @@ export default function SourceCodeView({ language = 'pt' }: { language?: Languag
     }
   }
 
+  const autocompleteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (autocompleteTimeoutRef.current) clearTimeout(autocompleteTimeoutRef.current);
+    };
+  }, []);
+
+  const handleCodeChange = async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    const start = e.target.selectionStart;
+    setCode(val);
+
+    if (autocompleteTimeoutRef.current) clearTimeout(autocompleteTimeoutRef.current);
+
+    // Autocomplete Logic
+    const textBefore = val.substring(0, start);
+    const words = textBefore.split(/\s|\n|\(|\)|\{|\}|\[|\]|\;|\,|\.|\=|\+|\-|\*|\//);
+    const lastWord = words[words.length - 1];
+
+    if (lastWord.length >= 2) {
+      autocompleteTimeoutRef.current = setTimeout(async () => {
+        // Semantic Search via /api/files/search (Symbol-aware)
+        const resp = await safeFetch(`/api/files/search?query=${lastWord}&includeSymbols=true&filepath=${encodeURIComponent(customPath || activeTab.file)}`);
+        
+        if (resp.matches && resp.matches.length > 0) {
+          // Simple position estimation (not perfect for textarea but works roughly)
+          const lines = textBefore.split('\n');
+          const lineCount = lines.length;
+          const charCount = lines[lineCount - 1].length;
+          
+          setAutocomplete({
+            list: resp.matches,
+            index: 0,
+            show: true,
+            query: lastWord,
+            pos: { 
+              top: lineCount * 20 + 20, // Rough pixel estimates
+              left: charCount * 8 + 40 
+            }
+          });
+        } else {
+          setAutocomplete(prev => ({ ...prev, show: false }));
+        }
+      }, 300); // 300ms debounce
+    } else {
+      setAutocomplete(prev => ({ ...prev, show: false }));
+    }
+  };
+
+  const applyAutocomplete = (suggestion: string) => {
+     const textarea = textareaRef.current;
+     if (!textarea) return;
+
+     const start = textarea.selectionStart;
+     const textBefore = code.substring(0, start);
+     const textAfter = code.substring(start);
+     
+     const lastWordMatch = textBefore.match(/[a-zA-Z_]\w*$/);
+     const lastWordLength = lastWordMatch ? lastWordMatch[0].length : 0;
+     
+     const newCode = textBefore.substring(0, start - lastWordLength) + suggestion + textAfter;
+     setCode(newCode);
+     setAutocomplete(prev => ({ ...prev, show: false }));
+     
+     setTimeout(() => {
+       textarea.focus();
+       const newPos = start - lastWordLength + suggestion.length;
+       textarea.setSelectionRange(newPos, newPos);
+     }, 0);
+  };
+
+  const handleAutocompleteKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!autocomplete.show) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setAutocomplete(prev => ({ ...prev, index: (prev.index + 1) % prev.list.length }));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setAutocomplete(prev => ({ ...prev, index: (prev.index - 1 + prev.list.length) % prev.list.length }));
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      applyAutocomplete(autocomplete.list[autocomplete.index].path);
+    } else if (e.key === 'Escape') {
+      setAutocomplete(prev => ({ ...prev, show: false }));
+    }
+  };
+
   return (
-    <div className="h-full flex flex-col space-y-4 font-sans">
-      <header>
-        <h2 className="text-3xl font-bold text-white tracking-tight flex items-center gap-3">
-          {t.header}
-          <span className="bg-blue-500/20 text-blue-400 text-[10px] px-2 py-1 rounded tracking-widest uppercase font-black">{t.badge}</span>
-        </h2>
-        <p className="text-slate-400 mt-1">{t.description}</p>
+    <div className="h-full flex flex-col space-y-4 font-sans relative">
+      <header className="flex justify-between items-start">
+        <div>
+          <h2 className="text-3xl font-bold text-white tracking-tight flex items-center gap-3">
+            {t.header}
+            <span className="bg-blue-500/20 text-blue-400 text-[10px] px-2 py-1 rounded tracking-widest uppercase font-black">{t.badge}</span>
+          </h2>
+          <p className="text-slate-400 mt-1">{t.description}</p>
+        </div>
+
+        <AnimatePresence>
+          {currentFileModified && (
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="bg-red-600/10 border border-red-500/30 rounded-2xl p-3 flex items-center gap-3 shadow-xl backdrop-blur-md"
+            >
+              <div className="bg-red-600 p-2 rounded-xl animate-bounce">
+                <AlertCircle size={16} className="text-white" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-black text-red-500 uppercase tracking-widest leading-none mb-1">Out of Sync</span>
+                <span className="text-[9px] text-white/70">File modified externally.</span>
+              </div>
+              <button 
+                onClick={reloadFile}
+                className="bg-red-600 hover:bg-red-500 text-white text-[9px] font-black uppercase px-3 py-1.5 rounded-lg transition-all ml-2"
+              >
+                Reload
+              </button>
+            </motion.div>
+          )}
+
+          {lastChange && !currentFileModified && (
+            <motion.div 
+              initial={{ opacity: 0, x: 20, scale: 0.95 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-blue-600/10 border border-blue-500/30 rounded-2xl p-3 flex items-center gap-3 shadow-lg"
+            >
+              <div className="bg-blue-500 p-2 rounded-xl animate-pulse">
+                <BellRing size={16} className="text-white" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest leading-none mb-1">Live Update</span>
+                <span className="text-[10px] font-mono text-white max-w-[200px] truncate">{lastChange.path}</span>
+              </div>
+              <button 
+                onClick={() => setLastChange(null)}
+                className="text-slate-500 hover:text-white transition-colors ml-2"
+              >
+                <X size={14} />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </header>
 
       <div className="flex gap-4 mb-2 items-start relative z-10">
@@ -276,13 +539,55 @@ export default function SourceCodeView({ language = 'pt' }: { language?: Languag
          </div>
          
          <div className="flex-1 flex gap-6 min-h-0 relative">
-             <div className="flex-1 flex flex-col min-w-0">
+             <div className="flex-1 flex flex-col min-w-0 relative">
                 <textarea 
+                  ref={textareaRef}
                   value={code}
-                  onChange={(e) => setCode(e.target.value)}
+                  onChange={handleCodeChange}
+                  onKeyDown={handleAutocompleteKey}
                   className="flex-1 w-full bg-[#050506] border border-[#1e2126] rounded-2xl p-6 text-[#a3b1c6] font-mono text-sm focus:outline-none focus:border-blue-500/50 resize-none whitespace-pre shadow-inner custom-scrollbar"
                   spellCheck="false"
                 />
+
+                <AnimatePresence>
+                  {autocomplete.show && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 5 }}
+                      style={{ 
+                        position: 'absolute',
+                        top: Math.min(autocomplete.pos.top, (textareaRef.current?.clientHeight || 0) - 150),
+                        left: Math.min(autocomplete.pos.left, (textareaRef.current?.clientWidth || 0) - 200),
+                        zIndex: 100 
+                      }}
+                      className="bg-[#111317] border border-[#1e2126] rounded-xl shadow-2xl overflow-hidden min-w-[200px]"
+                    >
+                      <div className="px-3 py-1.5 bg-[#0a0b0d] border-b border-[#1e2126] text-[8px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                        <Code2 size={10} /> Suggestions
+                      </div>
+                      <div className="max-h-48 overflow-y-auto custom-scrollbar">
+                        {autocomplete.list.map((item, i) => (
+                           <button 
+                            key={i}
+                            onClick={() => applyAutocomplete(item.path)}
+                            onMouseEnter={() => setAutocomplete(prev => ({ ...prev, index: i }))}
+                            className={`w-full text-left px-4 py-2 text-xs font-mono flex items-center justify-between transition-colors gap-4 ${autocomplete.index === i ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-[#1e2126]'}`}
+                           >
+                             <div className="flex flex-col">
+                               <span className="font-bold">{item.path}</span>
+                               <span className={`text-[8px] uppercase tracking-tighter ${autocomplete.index === i ? 'text-blue-200' : 'text-slate-500'}`}>
+                                 {item.type || 'unknown'} • {item.reason}
+                               </span>
+                             </div>
+                             {autocomplete.index === i && <span className="text-[8px] bg-white/20 px-1 rounded shrink-0">Enter</span>}
+                           </button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 <div className="mt-4 flex justify-end">
                    <button 
                       onClick={saveFile}
@@ -345,7 +650,7 @@ export default function SourceCodeView({ language = 'pt' }: { language?: Languag
 
                     <div className="pt-5 border-t border-white/5 mt-auto">
                        <button 
-                        className="w-full bg-orange-600 hover:bg-orange-500 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg active:scale-95"
+                         className="w-full bg-orange-600 hover:bg-orange-500 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg active:scale-95"
                        >
                           Apply AI Patches
                        </button>

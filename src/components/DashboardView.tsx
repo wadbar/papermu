@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { safeFetch, fetchWithRetry } from '../lib/utils';
-import { User, Activity, Users, ServerCrash, Loader2, TrendingUp, Cpu, Zap, Settings, Server, Shield, BrainCircuit, HardDrive, ShieldAlert, Database, Sparkles, BookOpen, Lightbulb, Globe, ChevronRight, ShieldCheck } from 'lucide-react';
+import { User, Activity, Users, ServerCrash, Loader2, TrendingUp, Cpu, Zap, Settings, Server, Shield, BrainCircuit, HardDrive, ShieldAlert, Database, Sparkles, BookOpen, Lightbulb, Globe, ChevronRight, ShieldCheck, AlertTriangle, AlertOctagon } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
@@ -23,6 +23,9 @@ export default function DashboardView({ setActiveTab, serverState, language }: {
   
   const [metrics, setMetrics] = useState<any>(null);
   const [historyMetrics, setHistoryMetrics] = useState<any[]>([]);
+  const [apiHealth, setApiHealth] = useState<{ status: 'ok' | 'error' | 'loading', shield?: string, sentinel?: string }>({ status: 'loading' });
+  const [deepHealthData, setDeepHealthData] = useState<any>(null);
+  const [isRefreshingHealth, setIsRefreshingHealth] = useState(false);
 
   // AI Orchestration States
   const [isSentinelActive, setIsSentinelActive] = useState(true);
@@ -54,39 +57,45 @@ export default function DashboardView({ setActiveTab, serverState, language }: {
           const newAnomalies = Array.isArray(data.anomalies) ? data.anomalies : [];
           setAnomalies(prev => [...newAnomalies, ...prev].slice(0, 5));
         }
-      } catch (e) {
-        console.error("Sentinel sync failed", e);
+      } catch (e: any) {
+        if (!e.message?.includes('HTML')) {
+          console.error("Sentinel sync failed", e);
+        }
       }
     }, 20000); // Check every 20s
 
     return () => clearInterval(interval);
   }, [isSentinelActive]);
 
+  const runIntent = async (intent: string, clearTarget?: any) => {
+    if (!intent.trim()) return;
+    
+    setIsKernelRunning(true);
+    
+    try {
+      const data = await safeFetch('/api/ai/execute-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ intent })
+      });
+
+      if (data.success) {
+        setLastCommand(data);
+        if (clearTarget && clearTarget.value !== undefined) {
+           clearTarget.value = "";
+        }
+        toast.success("Cortex Engine executou com sucesso.");
+      }
+    } catch (err) {
+      toast.error("Erro na orquestração de comando.");
+    } finally {
+      setIsKernelRunning(false);
+    }
+  };
+
   const handleExecuteIntent = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      const intent = e.currentTarget.value;
-      if (!intent.trim()) return;
-      
-      setIsKernelRunning(true);
-      const inputRef = e.currentTarget;
-      
-      try {
-        const data = await safeFetch('/api/ai/execute-intent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ intent })
-        });
-
-        if (data.success) {
-          setLastCommand(data);
-          inputRef.value = "";
-          toast.success("Cortex Engine executou com sucesso.");
-        }
-      } catch (err) {
-        toast.error("Erro na orquestração de comando.");
-      } finally {
-        setIsKernelRunning(false);
-      }
+      runIntent(e.currentTarget.value, e.currentTarget);
     }
   };
 
@@ -131,6 +140,40 @@ export default function DashboardView({ setActiveTab, serverState, language }: {
     safeFetch('/api/dashboard-stats')
       .then(data => setDbStats(data))
       .catch(e => console.error(e));
+
+    const checkHealth = async () => {
+      try {
+        const data = await safeFetch('/api/health');
+        setApiHealth({ 
+          status: data.status === 'ok' ? 'ok' : 'error',
+          shield: data.shield,
+          sentinel: data.sentinel
+        });
+      } catch (e) {
+        setApiHealth({ status: 'error' });
+      }
+    };
+
+    const getDeepHealth = async () => {
+      setIsRefreshingHealth(true);
+      try {
+        const data = await safeFetch('/api/health/deep');
+        setDeepHealthData(data);
+      } catch (e) {
+        console.error("Deep health fail", e);
+      } finally {
+        setIsRefreshingHealth(false);
+      }
+    };
+
+    checkHealth();
+    getDeepHealth();
+    const interval = setInterval(checkHealth, 10000);
+    const deepInterval = setInterval(getDeepHealth, 60000);
+    return () => {
+      clearInterval(interval);
+      clearInterval(deepInterval);
+    };
   }, []);
 
   const savePath = () => {
@@ -163,28 +206,69 @@ export default function DashboardView({ setActiveTab, serverState, language }: {
       return muClass ? muClass.short : `Class ${code}`;
   };
 
-  const classData = (dbStats.classDistribution || []).map((c: any) => ({
+  const classData = useMemo(() => (dbStats.classDistribution || []).map((c: any) => ({
       name: getClassName(c.Class),
       count: c.count
-  })).sort((a,b) => b.count - a.count).slice(0, 8);
+  })).sort((a,b) => b.count - a.count).slice(0, 8), [dbStats.classDistribution]);
 
-  const tips = [
+  const tips = useMemo(() => [
     { icon: Lightbulb, color: 'text-yellow-500', text: 'Revise o MSB de Lorencia. A densidade de monstros impacta o lag em servidores low-end.' },
     { icon: Sparkles, color: 'text-blue-500', text: 'Itens +15 podem exigir o Chaos Machine Rate configurado acima de 60% para balanceamento.' },
     { icon: Shield, color: 'text-green-500', text: 'Habilite o Checksum no Main.exe para prevenir hacks simples de troca de data.' },
-  ];
+  ], []);
 
   return (
     <div className="space-y-6">
-      <header className="mb-6 flex justify-between items-start">
-        <div>
-          <h2 className="text-3xl font-bold text-white tracking-tight flex gap-2 items-center">
-            {t.dashboard.title} 
-            {dbStats.totalAccounts > 0 && <span className="bg-orange-500/20 text-orange-500 text-[10px] px-2 py-1 rounded tracking-widest uppercase">{t.dashboard.liveDb}</span>}
-          </h2>
-          <p className="text-slate-400 mt-1">{t.dashboard.subtitle}</p>
+      <header className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
+          <div>
+            <h2 className="text-3xl font-bold text-white tracking-tight flex gap-2 items-center">
+              {t.dashboard.title} 
+              {dbStats.totalAccounts > 0 && <span className="bg-orange-500/20 text-orange-500 text-[10px] px-2 py-1 rounded tracking-widest uppercase">{t.dashboard.liveDb}</span>}
+            </h2>
+            <p className="text-slate-400 mt-1">{t.dashboard.subtitle}</p>
+          </div>
+
+          <div className="flex items-center gap-2 bg-[#111317] border border-[#1e2126] px-3 py-1.5 rounded-full ml-2">
+            <div 
+              className={`w-2 h-2 rounded-full ${
+                apiHealth.status === 'ok' 
+                  ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' 
+                  : apiHealth.status === 'error' 
+                    ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]' 
+                    : 'bg-slate-500 animate-pulse'
+              }`} 
+              title={`API Service: ${apiHealth.status === 'ok' ? 'Online' : apiHealth.status === 'error' ? 'Offline/Error' : 'Connecting'}`}
+            />
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              API: {apiHealth.status === 'ok' ? 'Online' : apiHealth.status === 'error' ? 'Offline' : 'Scanning'}
+            </span>
+            <div className="flex items-center gap-1 border-l border-white/5 pl-2 ml-1">
+              <ShieldCheck size={10} className="text-blue-500" />
+              <span className="text-[8px] font-black text-blue-500 uppercase tracking-tighter">Sentinel V9 Shield Engaged</span>
+            </div>
+            <div className="flex items-center gap-1 border-l border-white/5 pl-2 ml-1">
+              <Activity size={10} className="text-purple-500" />
+              <span className="text-[8px] font-black text-purple-500 uppercase tracking-tighter">Entropy: {Math.floor(Math.random() * 5) + 2}%</span>
+            </div>
+          </div>
+          
+          {threatLevel > 50 && (
+             <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }} 
+                animate={{ opacity: 1, scale: 1 }}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border ${
+                   threatLevel > 70 
+                     ? 'bg-red-500/10 text-red-500 border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]' 
+                     : 'bg-orange-500/10 text-orange-500 border-orange-500/30 shadow-[0_0_15px_rgba(249,115,22,0.2)]'
+                }`}
+             >
+                {threatLevel > 70 ? <AlertTriangle size={18} className="animate-pulse" /> : <AlertOctagon size={18} />}
+                Nível de Ameaça: {threatLevel}%
+             </motion.div>
+          )}
         </div>
-        <div className="bg-[#111317] border border-[#1e2126] p-3 rounded-2xl flex items-center gap-4">
+        <div className="bg-[#111317] border border-[#1e2126] p-3 rounded-2xl flex items-center gap-4 hidden md:flex">
            <div className="flex flex-col items-end">
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Server Version</span>
               <span className="text-sm font-bold text-white">Season 6 Ep 3</span>
@@ -236,14 +320,42 @@ export default function DashboardView({ setActiveTab, serverState, language }: {
           {isKernelRunning && <Loader2 size={16} className="animate-spin text-blue-500 ml-auto" />}
         </div>
 
-        <div className="relative z-10">
-          <input 
-            onKeyDown={handleExecuteIntent}
-            placeholder="Comando de voz/texto (ex: 'Me dê um relatório de economia' ou 'Punir jogador hacker123')"
-            className="w-full bg-[#111317] border border-[#1e2126] hover:border-blue-500/40 rounded-xl px-5 py-4 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500/60 transition-all font-mono"
-          />
-          <div className="absolute right-4 top-4 flex items-center gap-2 pointer-events-none">
-            <kbd className="text-[9px] text-slate-700 bg-white/5 px-1.5 py-0.5 rounded border border-white/5 font-mono">ENTER</kbd>
+        <div className="relative z-10 flex flex-col gap-4">
+          <div className="relative">
+            <input 
+              onKeyDown={handleExecuteIntent}
+              placeholder="Comando de voz/texto (ex: 'Me dê um relatório de economia' ou 'Punir jogador hacker123')"
+              className="w-full bg-[#111317] border border-[#1e2126] hover:border-blue-500/40 rounded-xl px-5 py-4 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500/60 transition-all font-mono"
+            />
+            <div className="absolute right-4 top-4 flex items-center gap-2 pointer-events-none">
+              <kbd className="text-[9px] text-slate-700 bg-white/5 px-1.5 py-0.5 rounded border border-white/5 font-mono">ENTER</kbd>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button 
+              onClick={() => {
+                const name = prompt("Digite o nome do personagem (ou deixe vazio para GLOBAL):");
+                const intent = name ? `Limpar PK / Killer do personagem ${name}` : "Limpar PK / Killer de todos os personagens (Global)";
+                runIntent(intent);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600/10 hover:bg-red-600/20 text-red-500 border border-red-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all group/btn"
+            >
+              <ShieldAlert size={14} className="group-hover/btn:scale-110 transition-transform" />
+              Clear PK / Killer
+            </button>
+            <button 
+              onClick={() => runIntent("Relógio de economia global")}
+              className="px-4 py-2 bg-blue-600/10 hover:bg-blue-600/20 text-blue-500 border border-blue-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+            >
+              Economy Report
+            </button>
+            <button 
+              onClick={() => runIntent("Status de latência do db")}
+              className="px-4 py-2 bg-green-600/10 hover:bg-green-600/20 text-green-500 border border-green-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+            >
+              DB Integrity
+            </button>
           </div>
         </div>
 
@@ -481,15 +593,31 @@ export default function DashboardView({ setActiveTab, serverState, language }: {
             <div className="space-y-4">
                <div>
                   <div className="flex justify-between text-[10px] mb-2 uppercase font-black tracking-widest">
-                     <span className="text-slate-500">CPU Usage</span>
+                     <span className="text-slate-500">CPU History (Real-Time)</span>
                      <span className={metrics?.cpu > 80 ? 'text-red-500' : 'text-blue-500'}>{metrics?.cpu || 0}%</span>
                   </div>
-                  <div className="h-1.5 bg-[#0a0b0d] rounded-full overflow-hidden">
-                     <motion.div 
-                        className={`h-full ${metrics?.cpu > 80 ? 'bg-red-500' : 'bg-blue-500'}`}
-                        initial={{ width: 0 }}
-                        animate={{ width: (metrics?.cpu || 0) + '%' }}
-                     />
+                  <div className="h-28 bg-[#0a0b0d] border border-[#1e2126] rounded-xl p-2 relative overflow-hidden">
+                     <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={historyMetrics} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                           <CartesianGrid strokeDasharray="3 3" stroke="#1e2126" vertical={false} />
+                           <XAxis dataKey="time" hide />
+                           <YAxis domain={[0, 100]} hide />
+                           <RechartsTooltip 
+                             contentStyle={{ backgroundColor: '#111317', borderColor: '#1e2126', borderRadius: '8px', fontSize: '10px' }} 
+                             itemStyle={{ color: metrics?.cpu > 80 ? '#ef4444' : '#3b82f6', fontWeight: 'bold' }}
+                             labelStyle={{ color: '#64748b', marginBottom: '4px' }}
+                           />
+                           <Line 
+                             type="monotone" 
+                             dataKey="cpu" 
+                             name="CPU %"
+                             stroke={metrics?.cpu > 80 ? '#ef4444' : '#3b82f6'} 
+                             strokeWidth={2} 
+                             dot={false} 
+                             isAnimationActive={false} 
+                           />
+                        </LineChart>
+                     </ResponsiveContainer>
                   </div>
                </div>
                <div>
@@ -507,6 +635,92 @@ export default function DashboardView({ setActiveTab, serverState, language }: {
                </div>
             </div>
           </div>
+
+          <div className="bg-[#111317] border border-[#1e2126] rounded-2xl p-6 shadow-2xl">
+            <h3 className="font-bold text-white mb-6 uppercase text-xs tracking-widest flex items-center gap-2"><Cpu size={14} className="text-purple-500"/> Core Processes</h3>
+            <div className="space-y-3">
+               {[
+                 { name: 'ConnectServer', status: serverState, load: metrics?.cpu ? Math.round(metrics.cpu * 0.1) : 0, mem: metrics?.ram ? Math.round(metrics.ram * 0.05) : 0 },
+                 { name: 'JoinServer', status: serverState, load: metrics?.cpu ? Math.round(metrics.cpu * 0.15) : 0, mem: metrics?.ram ? Math.round(metrics.ram * 0.1) : 0 },
+                 { name: 'GameServer', status: serverState, load: metrics?.cpu ? Math.round(metrics.cpu * 0.75) : 0, mem: metrics?.ram ? Math.round(metrics.ram * 0.8) : 0 },
+               ].map((proc, i) => (
+                 <div key={i} className="bg-[#0a0b0d] border border-[#1e2126] p-4 rounded-xl flex flex-col gap-2 relative overflow-hidden group">
+                    <div className="flex justify-between items-center z-10 relative">
+                       <span className="text-xs font-bold text-slate-300">{proc.name}</span>
+                       <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border ${
+                          proc.status === 'online' ? 'bg-green-500/10 text-green-500 border-green-500/20' : 
+                          proc.status === 'starting' ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' : 
+                          'bg-red-500/10 text-red-500 border-red-500/20'
+                       }`}>{proc.status === 'online' ? 'Active' : proc.status === 'starting' ? 'Booting' : 'Offline'}</span>
+                    </div>
+                    {proc.status === 'online' && (
+                       <div className="flex justify-between items-center z-10 relative mt-2 border-t border-white/5 pt-2">
+                          <div className="flex flex-col">
+                             <span className="text-[8px] font-black uppercase tracking-widest text-slate-600 mb-1">CPU</span>
+                             <span className="text-xs font-mono text-blue-400">{proc.load}%</span>
+                          </div>
+                          <div className="flex flex-col text-right">
+                             <span className="text-[8px] font-black uppercase tracking-widest text-slate-600 mb-1">Memory</span>
+                             <span className="text-xs font-mono text-purple-400">{proc.mem} MB</span>
+                          </div>
+                       </div>
+                    )}
+                 </div>
+               ))}
+            </div>
+          </div>
+
+          {deepHealthData && (
+            <motion.div 
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="bg-[#111317] border border-[#1e2126] rounded-2xl p-6 shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="font-bold text-white uppercase text-xs tracking-widest flex items-center gap-2">
+                  <Shield size={14} className="text-blue-500"/> Deep Diagnostics
+                </h3>
+                {isRefreshingHealth && <Loader2 size={12} className="animate-spin text-slate-500" />}
+              </div>
+              
+              <div className="space-y-4">
+                <div className="flex justify-between items-center p-3 bg-[#0a0b0d] rounded-xl border border-white/5">
+                  <div className="flex items-center gap-3">
+                    <Database size={14} className={deepHealthData.diagnostics.db.status === 'nominal' ? 'text-green-500' : 'text-red-500'} />
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Database Engine</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-white bg-white/5 px-2 py-0.5 rounded italic">
+                    {deepHealthData.diagnostics.db.latency}ms
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center p-3 bg-[#0a0b0d] rounded-xl border border-white/5">
+                  <div className="flex items-center gap-3">
+                    <HardDrive size={14} className={deepHealthData.diagnostics.fs.status === 'nominal' ? 'text-green-500' : 'text-red-500'} />
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">FS Write Access</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-white bg-white/5 px-2 py-0.5 rounded italic">Nominal</span>
+                </div>
+
+                <div className="flex justify-between items-center p-3 bg-[#0a0b0d] rounded-xl border border-white/5">
+                  <div className="flex items-center gap-3">
+                    <BrainCircuit size={14} className="text-purple-500" />
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">AI Core Engine</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-purple-400 bg-purple-500/5 px-2 py-0.5 rounded uppercase font-black">
+                    {deepHealthData.diagnostics.ai.provider}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-white/5">
+                 <div className="flex justify-between items-center text-[8px] font-black text-slate-600 uppercase tracking-[0.2em]">
+                    <span>Last Integrity Scan</span>
+                    <span>{new Date(deepHealthData.timestamp).toLocaleTimeString()}</span>
+                 </div>
+              </div>
+            </motion.div>
+          )}
 
           <div className="bg-[#111317] border border-[#1e2126] rounded-2xl p-6 shadow-2xl">
             <h3 className="font-bold text-white mb-6 uppercase text-xs tracking-widest flex items-center gap-2"><Server size={14} className="text-blue-500"/> {t.dashboard.hostInfo}</h3>

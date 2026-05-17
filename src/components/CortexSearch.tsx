@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 
 export default function CortexSearch({ isOpen, onClose, navigateTo }: { isOpen: boolean, onClose: () => void, navigateTo: (tab: string) => void }) {
   const [query, setQuery] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(-1);
   const [isProcessing, setIsProcessing] = useState(false);
   const [answer, setAnswer] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState([
@@ -21,8 +22,36 @@ export default function CortexSearch({ isOpen, onClose, navigateTo }: { isOpen: 
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => inputRef.current?.focus(), 100);
+      setSelectedIndex(-1);
     }
   }, [isOpen]);
+
+  const handleSuggestionSelection = (index: number) => {
+    const s = suggestions[index];
+    if (s.tab) {
+      navigateTo(s.tab);
+      onClose();
+    } else {
+      setQuery(s.label);
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev + 1) % suggestions.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
+        e.preventDefault();
+        handleSuggestionSelection(selectedIndex);
+      } else if (e.key === 'Enter') {
+        handleSearch();
+      }
+    }
+  };
 
   const handleSearch = async () => {
     if (!query.trim()) return;
@@ -76,8 +105,11 @@ export default function CortexSearch({ isOpen, onClose, navigateTo }: { isOpen: 
                   type="text" 
                   placeholder="Master Command Search (Ex: Como aumentar drop de Joias?)"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                  onChange={(e) => {
+                     setQuery(e.target.value);
+                     setSelectedIndex(-1);
+                  }}
+                  onKeyDown={handleKeyDown}
                   className="w-full bg-[#111317] border-none rounded-2xl py-6 pl-16 pr-24 text-lg text-white font-medium outline-none focus:ring-0 placeholder:text-slate-700"
                 />
                 <div className="absolute right-6 top-1/2 -translate-y-1/2 flex items-center gap-2">
@@ -115,15 +147,9 @@ export default function CortexSearch({ isOpen, onClose, navigateTo }: { isOpen: 
                        {suggestions.map((s, idx) => (
                          <button 
                            key={idx}
-                           onClick={() => {
-                             if (s.tab) {
-                               navigateTo(s.tab);
-                               onClose();
-                             } else {
-                               setQuery(s.label);
-                             }
-                           }}
-                           className="w-full text-left flex items-center justify-between p-4 rounded-xl hover:bg-[#111317] group transition-all"
+                           onClick={() => handleSuggestionSelection(idx)}
+                           onMouseEnter={() => setSelectedIndex(idx)}
+                           className={`w-full text-left flex items-center justify-between p-4 rounded-xl hover:bg-[#111317] group transition-all ${idx === selectedIndex ? 'bg-[#111317]' : ''}`}
                          >
                             <div className="flex items-center gap-4">
                                <div className="w-10 h-10 rounded-xl bg-orange-600/5 group-hover:bg-orange-600/10 border border-orange-500/10 flex items-center justify-center text-slate-600 group-hover:text-orange-500 transition-all">

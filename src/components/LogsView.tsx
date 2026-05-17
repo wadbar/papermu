@@ -7,9 +7,14 @@ export default function LogsView() {
   const [logs, setLogs] = useState<string[]>([]);
   const [isPaused, setIsPaused] = useState(false);
   const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState('Tudo');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  const filteredLogs = logs.filter(log => log.toLowerCase().includes(search.toLowerCase()));
+  const filteredLogs = logs.filter(log => {
+    const matchesSearch = log.toLowerCase().includes(search.toLowerCase());
+    const matchesFilter = activeFilter === 'Tudo' || log.toUpperCase().includes(activeFilter.toUpperCase());
+    return matchesSearch && matchesFilter;
+  });
 
   useEffect(() => {
     if(isPaused) return;
@@ -86,10 +91,18 @@ export default function LogsView() {
                <input 
                  type="text" 
                  placeholder="Filtrar logs..." 
-                 className="bg-[#111317] border border-[#1e2126] text-white text-xs p-2 pl-8 rounded-lg focus:outline-none focus:border-orange-500/50 w-32 md:w-64 transition-all"
+                 className="bg-[#111317] border border-[#1e2126] text-white text-xs p-2 pl-8 pr-8 rounded-lg focus:outline-none focus:border-orange-500/50 w-32 md:w-64 transition-all"
                  value={search}
                  onChange={e => setSearch(e.target.value)}
                />
+               {search && (
+                 <button 
+                   onClick={() => setSearch('')}
+                   className="absolute right-2 top-2 text-slate-500 hover:text-white transition-colors"
+                 >
+                   <Activity size={12} className="rotate-45" /> 
+                 </button>
+               )}
             </div>
             <button onClick={() => setIsPaused(!isPaused)} className={`${isPaused ? 'bg-orange-600' : 'bg-[#111317]'} hover:bg-[#1e2126] border border-[#1e2126] text-slate-300 px-4 py-2 rounded-lg text-xs font-bold transition-colors`}>
              {isPaused ? 'Retomar' : 'Pausar'}
@@ -106,8 +119,12 @@ export default function LogsView() {
       </header>
 
       <div className="flex gap-2">
-         {['Tudo', 'ConnectServer', 'JoinServer', 'GameServer', 'ExDB', 'ChatServer'].map((filter, i) => (
-            <button key={i} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${i === 0 ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : 'bg-[#111317] border border-[#1e2126] text-slate-400 hover:text-white'}`}>
+         {['Tudo', 'ConnectServer', 'JoinServer', 'GameServer', 'ExDB', 'ChatServer'].map((filter) => (
+            <button 
+              key={filter} 
+              onClick={() => setActiveFilter(filter)}
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${activeFilter === filter ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : 'bg-[#111317] border border-[#1e2126] text-slate-400 hover:text-white'}`}
+            >
               {filter}
             </button>
          ))}
@@ -120,10 +137,36 @@ export default function LogsView() {
              {isPaused ? 'Pausado' : 'Lendo StdOut...'}
            </span>
          </div>
-         {filteredLogs.map((line, idx) => (
-            <p key={idx} className={line.includes('Error') ? 'text-red-500' : line.includes('GameServer') ? 'text-blue-400' : 'text-slate-300'}>{line}</p>
-         ))}
-         {filteredLogs.length === 0 && <p className="text-slate-600">Aguardando logs do servidor...</p>}
+         {filteredLogs.map((line, idx) => {
+            const upLine = line.toUpperCase();
+            const isError = upLine.includes('ERROR') || upLine.includes('CRITICAL');
+            const isGS = upLine.includes('GAMESERVER');
+            
+            return (
+              <p 
+                key={idx} 
+                className={`
+                  ${isError ? 'text-red-500 font-bold bg-red-500/5 px-1 rounded' : isGS ? 'text-blue-400' : 'text-slate-300'}
+                `}
+              >
+                {line}
+              </p>
+            );
+         })}
+         {filteredLogs.length === 0 && (
+           <div className="flex flex-col items-center justify-center h-full text-slate-600 gap-2">
+             <Activity size={32} className="opacity-20" />
+             <p>{logs.length === 0 ? 'Aguardando logs do servidor...' : 'Nenhum log corresponde aos filtros aplicados.'}</p>
+             {(search || activeFilter !== 'Tudo') && (
+               <button 
+                 onClick={() => { setSearch(''); setActiveFilter('Tudo'); }}
+                 className="text-[10px] text-orange-500 hover:underline uppercase tracking-widest font-bold"
+               >
+                 Limpar Filtros
+               </button>
+             )}
+           </div>
+         )}
       </div>
     </div>
   );

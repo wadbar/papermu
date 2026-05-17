@@ -10,7 +10,7 @@ import toast from 'react-hot-toast';
 import ReactMarkdown from 'react-markdown';
 
 export default function CommandCenter() {
-  const [activeView, setActiveView] = useState<'commands' | 'oracle'>('commands');
+  const [activeView, setActiveView] = useState<'commands' | 'oracle' | 'broadcast' | 'sql'>('commands');
   const [targetChar, setTargetChar] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isGeneratingSQL, setIsGeneratingSQL] = useState(false);
@@ -203,6 +203,18 @@ export default function CommandCenter() {
            >
              <Sparkles size={12} /> ORÁCULO
            </button>
+           <button 
+             onClick={() => setActiveView('sql')}
+             className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-2 ${activeView === 'sql' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}
+           >
+             <Database size={12} /> SQL AI
+           </button>
+           <button 
+             onClick={() => setActiveView('broadcast' as any)}
+             className={`px-4 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-2 ${activeView === 'broadcast' as any ? 'bg-green-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}
+           >
+             <MessageSquare size={12} /> BROADCAST
+           </button>
         </div>
       </header>
 
@@ -298,65 +310,99 @@ export default function CommandCenter() {
                 </div>
             </div>
           </div>
-
-          <div className="pt-4">
-            <h3 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] flex items-center gap-2 px-1 mb-4">
-                <Terminal size={14} className="text-blue-500" /> AI SQL Factory
+        </motion.div>
+      ) : activeView === 'sql' ? (
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-6"
+        >
+          <div>
+            <h3 className="text-[10px] font-black text-blue-500/60 uppercase tracking-[0.2em] flex items-center gap-2 px-1 mb-4">
+                <BrainCircuit size={14} className="text-blue-500" /> Neural SQL Transpiler
             </h3>
             
-            <div className="bg-[#111317] border border-blue-500/20 rounded-2xl p-5 mb-4 relative overflow-hidden shadow-2xl flex flex-col md:flex-row gap-4 items-center">
-                <div className="absolute top-0 right-0 p-4 opacity-5">
-                  <Sparkles size={80} className="text-blue-500" />
+            <div className="bg-[#111317] border-2 border-blue-500/10 rounded-2xl p-7 mb-6 relative overflow-hidden shadow-[0_0_50px_rgba(37,99,235,0.1)] flex flex-col gap-6">
+                <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                  <Sparkles size={120} className="text-blue-500" />
                 </div>
-                <div className="w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center text-blue-500 shrink-0 shadow-inner border border-blue-500/20">
-                  <BrainCircuit size={24} />
+                
+                <div className="flex flex-col md:flex-row gap-6 items-center">
+                  <div className="w-16 h-16 rounded-2xl bg-blue-600/10 flex items-center justify-center text-blue-500 shrink-0 shadow-inner border border-blue-500/20">
+                    <Database size={32} />
+                  </div>
+                  <div className="flex-1 w-full space-y-2">
+                    <h4 className="text-white font-black text-lg tracking-tight uppercase">Tradução de Linguagem Natural</h4>
+                    <p className="text-xs text-slate-500 leading-relaxed max-w-xl">
+                      Descreva a operação que deseja realizar no banco de dados (ex: "Resetar PK de todos os personagens acima do level 300") e a IA Master-GM gerará o T-SQL correspondente.
+                    </p>
+                  </div>
                 </div>
-                <div className="flex-1 w-full flex flex-col gap-1">
-                  <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest ml-1">Linguagem Natural para T-SQL</span>
-                  <input 
-                    type="text" 
-                    placeholder="Descreva a ação (Ex: Aumentar Zen de todos em 1 milhão)..."
-                    value={nlPrompt}
-                    onChange={(e) => setNlPrompt(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && generateSQL()}
-                    className="w-full bg-transparent border-none p-0 text-sm text-white placeholder-slate-700 focus:ring-0 transition-all font-sans"
-                  />
+
+                <div className="relative group">
+                  <div className="absolute inset-0 bg-blue-600/5 blur-xl group-focus-within:bg-blue-600/10 transition-all pointer-events-none"></div>
+                  <div className="relative bg-[#0a0b0d] border border-blue-500/20 rounded-2xl p-2 flex flex-col md:flex-row gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="Ex: Dar 500kk de zen para todas as contas VIP..."
+                      value={nlPrompt}
+                      onChange={(e) => setNlPrompt(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && generateSQL()}
+                      className="flex-1 bg-transparent border-none px-6 py-4 text-white placeholder-slate-800 focus:ring-0 transition-all font-medium"
+                    />
+                    <button 
+                      onClick={generateSQL}
+                      disabled={isGeneratingSQL || !nlPrompt.trim()}
+                      className="bg-blue-600 hover:bg-blue-500 text-white px-10 py-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] transition-all shadow-xl hover:shadow-blue-600/20 disabled:opacity-50 flex items-center justify-center gap-3"
+                    >
+                      {isGeneratingSQL ? <Loader2 size={16} className="animate-spin" /> : <><Sparkles size={14} /> GERAR QUERY</>}
+                    </button>
+                  </div>
                 </div>
-                <button 
-                  onClick={generateSQL}
-                  disabled={isGeneratingSQL || !nlPrompt.trim()}
-                  className="w-full md:w-auto whitespace-nowrap bg-blue-600 hover:bg-blue-500 text-white px-8 py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-xl hover:shadow-blue-600/20 disabled:opacity-50"
-                >
-                  {isGeneratingSQL ? <Loader2 size={16} className="animate-spin" /> : 'Sintetizar'}
-                </button>
             </div>
 
-            <div className="bg-[#111317] border border-[#1e2126] rounded-2xl p-6 shadow-2xl overflow-hidden group">
+            <div className="bg-[#111317] border border-[#1e2126] rounded-2xl p-1 shadow-2xl relative group">
+                <div className="flex items-center justify-between px-6 py-3 border-b border-[#1e2126] bg-black/20 rounded-t-2xl">
+                   <div className="flex items-center gap-3">
+                      <Terminal size={14} className="text-slate-600" />
+                      <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Master-Node SQL Console</span>
+                   </div>
+                   <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]"></div>
+                      <span className="text-[9px] font-black text-green-500 uppercase tracking-widest">Live Connection</span>
+                   </div>
+                </div>
                 <textarea 
-                  placeholder="Selecione ou digite sua query aqui..."
+                  placeholder="A query gerada aparecerá aqui para revisão antes da execução..."
                   value={customQuery}
                   onChange={(e) => setCustomQuery(e.target.value)}
-                  className="w-full h-40 bg-[#0a0b0d] border border-[#1e2126] group-focus-within:border-blue-500/30 rounded-2xl p-6 text-blue-400 font-mono text-sm focus:outline-none transition-all resize-none shadow-inner custom-scrollbar"
+                  className="w-full h-56 bg-transparent border-none p-6 text-blue-400 font-mono text-sm focus:outline-none transition-all resize-none custom-scrollbar"
                 />
-                <div className="flex justify-between items-center mt-6 gap-4">
+                <div className="p-6 bg-black/20 rounded-b-2xl border-t border-[#1e2126] flex flex-col sm:flex-row justify-between items-center gap-6">
                   <div className="flex gap-4 items-center">
-                    <span className="text-[9px] font-black text-slate-700 tracking-widest uppercase">Kernel Mode</span>
-                    <div className="h-4 w-px bg-slate-800"></div>
-                    <span className="text-[9px] font-black text-slate-700 tracking-widest uppercase">MSSQL Transact</span>
+                    <div className="flex flex-col">
+                       <span className="text-[9px] font-black text-slate-700 tracking-widest uppercase">Motor SQL</span>
+                       <span className="text-[10px] font-mono text-slate-400">Transact-SQL (T-SQL)</span>
+                    </div>
+                    <div className="h-8 w-px bg-slate-800"></div>
+                    <div className="flex flex-col">
+                       <span className="text-[9px] font-black text-slate-700 tracking-widest uppercase">Target DB</span>
+                       <span className="text-[10px] font-mono text-slate-400">MuOnline / Me_MuOnline</span>
+                    </div>
                   </div>
-                  <div className="flex gap-4">
+                  <div className="flex gap-4 w-full sm:w-auto">
                     <button 
                       onClick={() => setCustomQuery('')}
-                      className="text-[10px] font-black text-slate-600 hover:text-white uppercase tracking-widest transition-colors"
+                      className="px-6 py-3 text-[10px] font-black text-slate-600 hover:text-white uppercase tracking-widest transition-colors flex items-center gap-2 group/clear"
                     >
-                      CLEAR
+                      <Trash2 size={14} className="group-hover/clear:text-red-500 transition-colors" /> LIMPAR
                     </button>
                     <button 
                       onClick={() => executeCommand('manual', '', 'Comando customizado executado!', true)}
                       disabled={isLoading || isFixing || !customQuery.trim()}
-                      className="bg-white hover:bg-slate-200 text-black font-black px-8 py-3 rounded-xl transition-all text-xs uppercase tracking-widest shadow-xl flex items-center justify-center gap-3 disabled:opacity-50"
+                      className="flex-1 sm:flex-none bg-white hover:bg-slate-200 text-black font-black px-10 py-4 rounded-xl transition-all text-xs uppercase tracking-[0.2em] shadow-xl flex items-center justify-center gap-3 disabled:opacity-50"
                     >
-                        {(isLoading || isFixing) ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />} RUN QUERY
+                        {(isLoading || isFixing) ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />} EXECUTAR SCRIPT
                     </button>
                   </div>
                 </div>
@@ -448,6 +494,40 @@ export default function CommandCenter() {
                  </div>
               )}
            </div>
+        </motion.div>
+      )}
+
+      {activeView === 'broadcast' && (
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-6"
+        >
+          <div className="bg-[#111317] border border-[#1e2126] rounded-2xl p-6 shadow-2xl relative overflow-hidden group">
+            <h3 className="text-lg font-black text-white uppercase tracking-tight flex items-center gap-2 mb-6">
+              <MessageSquare size={18} className="text-green-500" /> Transmissão Global (Golden Notice)
+            </h3>
+            
+            <div className="space-y-4 relative z-10 w-full max-w-2xl mx-auto block">
+              <div>
+                 <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-2">Mensagem para o Servidor</label>
+                 <textarea
+                    rows={4}
+                    placeholder="Digite a mensagem que aparecerá dourada no centro da tela de todos os players..."
+                    className="w-full bg-[#0a0b0d] border border-[#1e2126] rounded-xl p-4 text-white font-mono text-sm focus:outline-none focus:border-green-500/50 resize-none transition-colors"
+                 ></textarea>
+              </div>
+              <div className="flex gap-4 items-center">
+                 <button 
+                   onClick={() => toast.success("Aviso global enviado via Dataserver API (Simulação)")}
+                   className="bg-green-600 hover:bg-green-500 text-white font-bold uppercase tracking-widest text-xs px-6 py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(22,163,74,0.3)] hover:shadow-[0_0_25px_rgba(22,163,74,0.5)] flex items-center gap-2"
+                 >
+                   <Send size={14} /> Anunciar
+                 </button>
+                 <p className="text-xs text-slate-500 italic">Envia o pacote 0xC1 para notificação ingame.</p>
+              </div>
+            </div>
+          </div>
         </motion.div>
       )}
     </div>
