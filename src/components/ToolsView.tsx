@@ -1,8 +1,16 @@
-import React, { useState } from 'react';
-import { Box, Target, Gift, Store, MapPin, Terminal, BrainCircuit } from 'lucide-react';
-import MonsterSetBaseEditor from './MonsterSetBaseEditor';
-import ItemEditor from './ItemEditor';
-import EventBagEditor from './EventBagEditor';
+import React, { useState, Suspense } from 'react';
+import { Box, Target, Gift, Store, MapPin, Terminal, BrainCircuit, Loader2 } from 'lucide-react';
+
+const MonsterSetBaseEditor = React.lazy(() => import('./MonsterSetBaseEditor'));
+const ItemEditor = React.lazy(() => import('./ItemEditor'));
+const EventBagEditor = React.lazy(() => import('./EventBagEditor'));
+
+const MiniLoader = () => (
+  <div className="flex flex-col items-center justify-center p-8 text-slate-500 h-full">
+    <Loader2 size={24} className="animate-spin text-orange-500 mb-2" />
+    <span className="text-[10px] font-black uppercase tracking-widest">Carregando Ferramenta...</span>
+  </div>
+);
 
 export default function ToolsView() {
   const [activeTool, setActiveTool] = useState<string | null>(null);
@@ -17,9 +25,9 @@ export default function ToolsView() {
     { id: 'cpp', name: 'Source Auditor', icon: BrainCircuit, desc: 'Análise de vulnerabilidades na Source C++ (AI Powered).', color: 'text-white' }
   ];
 
-  if (activeTool === 'monstersetbase') return <MonsterSetBaseEditor onBack={() => setActiveTool(null)} />;
-  if (activeTool === 'item') return <ItemEditor onBack={() => setActiveTool(null)} />;
-  if (activeTool === 'eventbag') return <EventBagEditor onBack={() => setActiveTool(null)} />;
+  if (activeTool === 'monstersetbase') return <Suspense fallback={<MiniLoader />}><MonsterSetBaseEditor onBack={() => setActiveTool(null)} /></Suspense>;
+  if (activeTool === 'item') return <Suspense fallback={<MiniLoader />}><ItemEditor onBack={() => setActiveTool(null)} /></Suspense>;
+  if (activeTool === 'eventbag') return <Suspense fallback={<MiniLoader />}><EventBagEditor onBack={() => setActiveTool(null)} /></Suspense>;
 
   return (
     <div className="space-y-6">

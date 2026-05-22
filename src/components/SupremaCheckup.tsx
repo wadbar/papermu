@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, ShieldCheck, Zap, Server, Database, Terminal, CheckCircle2, AlertCircle, Search, Cpu, HardDrive, Wifi, Fingerprint, Lock, Wrench } from 'lucide-react';
+import { Activity, ShieldCheck, Zap, Server, Database, Terminal, CheckCircle2, AlertCircle, Search, Cpu, HardDrive, Wifi, Fingerprint, Lock, Wrench, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'react-hot-toast';
+import { jsPDF } from "jspdf";
 
 export default function SupremaCheckup() {
   const [checking, setChecking] = useState(false);
   const [report, setReport] = useState<any[]>([]);
+  const [checkHistory, setCheckHistory] = useState<any[]>([]);
   const [isAutoFixing, setIsAutoFixing] = useState(false);
   const [overallHealth, setOverallHealth] = useState<number | null>(null);
 
@@ -36,8 +38,11 @@ export default function SupremaCheckup() {
     }
     
     const issues = steps.filter(s => s.status !== 'pass').length;
-    setOverallHealth(Math.max(0, 100 - (issues * 15))); 
+    const finalHealth = Math.max(0, 100 - (issues * 15));
+    setOverallHealth(finalHealth);
     setChecking(false);
+    
+    setCheckHistory(prev => [{ time: new Date().toLocaleString(), health: finalHealth, steps }, ...prev].slice(0, 10));
 
     if (issues > 0) {
       toast.error(`${issues} anomalias detectadas no ecossistema Master Node.`, { icon: '🚨' });
@@ -58,6 +63,38 @@ export default function SupremaCheckup() {
     }, 4000);
   };
 
+  const downloadPdf = () => {
+      if (checkHistory.length === 0) {
+          toast.error("Nenhum relatório de sistema para exportar.");
+          return;
+      }
+      const doc = new jsPDF();
+      doc.setFont("helvetica", "bold");
+      doc.text("Suprema System Health Report (Last 10 Scans)", 14, 20);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      
+      let y = 30;
+      checkHistory.forEach((h, i) => {
+          if (y > 270) { doc.addPage(); y = 20; }
+          doc.setFont("helvetica", "bold");
+          doc.text(`Scan ${i + 1} - [${h.time}] - Health: ${h.health}%`, 14, y);
+          doc.setFont("helvetica", "normal");
+          y += 6;
+          h.steps.forEach((s: any) => {
+              if (y > 280) { doc.addPage(); y = 20; }
+              const text = `   [${s.status.toUpperCase()}] ${s.name}: ${s.detail}`;
+              const splitText = doc.splitTextToSize(text, 180);
+              doc.text(splitText, 14, y);
+              y += splitText.length * 5;
+          });
+          y += 4;
+      });
+      
+      doc.save("Suprema_Checkup_Report.pdf");
+      toast.success("Relatório baixado em PDF.");
+  };
+
   return (
     <div className="bg-[#111317] border border-[#1e2126] rounded-3xl p-8 shadow-[0_0_80px_rgba(40,42,50,0.4)] relative overflow-hidden group">
       <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none group-hover:opacity-10 transition-opacity">
@@ -71,12 +108,23 @@ export default function SupremaCheckup() {
            </h3>
            <p className="text-xs text-slate-500 font-bold uppercase tracking-[0.2em] mt-1">Deep Scan & Auto-Healing AI Hub</p>
         </div>
-        <div className="flex gap-4 items-center">
+        <div className="flex gap-4 items-center flex-wrap">
+          <button 
+            onClick={downloadPdf} 
+            className="bg-[#050506] border border-slate-500/30 hover:bg-slate-500/10 text-slate-400 font-black tracking-widest uppercase px-4 py-3 rounded-xl text-[10px] transition-all flex items-center gap-2"
+          >
+             <Download size={14} /> PDF Report
+          </button>
+
           {overallHealth !== null && (
-              <div className="flex flex-col items-end mr-4">
+              <motion.div 
+                className="flex flex-col items-end mr-4"
+                animate={overallHealth < 90 ? { opacity: [1, 0.5, 1] } : {}}
+                transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+              >
                  <span className="text-[10px] uppercase font-black tracking-widest text-slate-500">System Health</span>
                  <span className={`text-2xl font-black italic tracking-tighter ${overallHealth === 100 ? 'text-green-500' : 'text-red-500'}`}>{overallHealth}%</span>
-              </div>
+              </motion.div>
           )}
           <button 
             onClick={runCheckup} 

@@ -2,11 +2,32 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
+import { visualizer } from 'rollup-plugin-visualizer';
+
+function visualizerConsoleLog() {
+  return {
+    name: 'visualizer-console-log',
+    closeBundle() {
+      console.log('\x1b[32m%s\x1b[0m', '\n📊 Mapa de dependências gerado em stats.html');
+      console.log('\x1b[36m%s\x1b[0m', '🔗 Abra o arquivo dist/stats.html ou stats.html (de acordo com a saída) no seu navegador para visualizar.');
+    }
+  };
+}
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(), 
+      tailwindcss(),
+      visualizer({ 
+        open: false, 
+        gzipSize: true, 
+        brotliSize: true, 
+        filename: 'stats.html' 
+      }),
+      visualizerConsoleLog()
+    ],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },
@@ -26,9 +47,23 @@ export default defineConfig(({mode}) => {
       minify: 'esbuild',
       rollupOptions: {
         output: {
-          manualChunks: {
-            'vendor-react': ['react', 'react-dom'],
-            'vendor-ui': ['lucide-react', 'motion/react', 'recharts']
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              // 3D Dependencies
+              if (id.includes('/node_modules/three/') || id.includes('/node_modules/@react-three/')) {
+                return 'vendor-3d';
+              }
+              // Charts
+              if (id.includes('/node_modules/recharts/') || id.includes('/node_modules/d3-')) {
+                return 'vendor-charts';
+              }
+              // Core UI/React
+              if (id.includes('/node_modules/react/') || id.includes('/node_modules/react-dom/') || id.includes('/node_modules/lucide-react/') || id.includes('/node_modules/motion/')) {
+                return 'vendor-core';
+              }
+              // Everything else
+              return 'vendor-misc';
+            }
           }
         }
       }

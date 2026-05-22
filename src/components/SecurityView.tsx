@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Target, Trash2, AlertTriangle, ShieldAlert, Cpu, Activity, Globe, Lock, Unlock, Zap, ZapOff, ChevronRight } from 'lucide-react';
+import { Shield, Target, Trash2, AlertTriangle, ShieldAlert, Cpu, Activity, Globe, Lock, Unlock, Zap, ZapOff, ChevronRight, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
+import toast from 'react-hot-toast';
+import ThreatMapping from './ThreatMapping';
 
 export default function SecurityView() {
   const [threatLevel, setThreatLevel] = useState(12);
@@ -12,13 +14,23 @@ export default function SecurityView() {
     { ip: '192.168.1.100', country: 'LOCAL', reason: 'Packet Overflow', timestamp: '1 hour ago' },
   ]);
 
+  const [thresholds, setThresholds] = useState({
+    threatLevel: 70,
+    cpuSpike: 85,
+    memSpike: 90
+  });
+
+  const saveThresholds = () => {
+    toast.success("Limites de alerta atualizados com sucesso!");
+  };
+
   const attackData = Array.from({ length: 20 }, (_, i) => ({
     time: i,
     v: Math.floor(Math.random() * 50) + (i > 15 ? 100 : 0)
   }));
 
   return (
-    <div className="space-y-6 flex flex-col h-full font-sans">
+    <div className="space-y-6 flex flex-col h-full font-sans overflow-y-auto">
       <header className="mb-0 flex justify-between items-end shrink-0">
         <div>
            <h2 className="text-3xl font-bold text-white tracking-tight flex items-center gap-3">
@@ -39,7 +51,7 @@ export default function SecurityView() {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 flex-1 min-h-0">
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 flex-1 min-h-0 pb-6">
          {/* Threat Analysis Column */}
          <div className="xl:col-span-3 space-y-6 flex flex-col">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -82,7 +94,7 @@ export default function SecurityView() {
                </div>
             </div>
 
-            <div className="flex-1 bg-[#111317] border border-[#1e2126] rounded-2xl p-8 flex flex-col shadow-2xl relative overflow-hidden group">
+            <div className="bg-[#111317] border border-[#1e2126] rounded-2xl p-8 flex flex-col shadow-2xl relative overflow-hidden group">
                <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity">
                   <Shield size={250} className="text-white" />
                </div>
@@ -96,8 +108,8 @@ export default function SecurityView() {
                   </div>
                </div>
 
-               <div className="flex-1 min-h-[200px] relative z-10 h-full">
-                  <ResponsiveContainer width="100%" height="100%">
+               <div className="flex-1 min-h-[200px] relative z-10 w-full">
+                  <ResponsiveContainer width="100%" height={200}>
                      <LineChart data={attackData}>
                         <YAxis hide />
                         <Tooltip 
@@ -153,18 +165,86 @@ export default function SecurityView() {
                    </div>
                </div>
             </div>
+
+            <div className="bg-[#111317] border border-[#1e2126] rounded-2xl p-6 shadow-2xl relative">
+              <h3 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2 mb-6">
+                <Settings size={14} className="text-blue-500" />
+                Alert Thresholds Configuration
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex justify-between">
+                    <span>Threat Level Alert</span>
+                    <span className="text-red-500">{thresholds.threatLevel}%</span>
+                  </label>
+                  <input 
+                    type="range" min="0" max="100" 
+                    className="w-full accent-red-500"
+                    value={thresholds.threatLevel}
+                    onChange={e => setThresholds({...thresholds, threatLevel: Number(e.target.value)})}
+                  />
+                  <p className="text-[9px] text-slate-600 font-bold uppercase mt-1">Shake dashboard card &gt; {thresholds.threatLevel}%</p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex justify-between">
+                    <span>CPU Spike Trigger</span>
+                    <span className="text-orange-500">{thresholds.cpuSpike}%</span>
+                  </label>
+                  <input 
+                    type="range" min="0" max="100" 
+                    className="w-full accent-orange-500"
+                    value={thresholds.cpuSpike}
+                    onChange={e => setThresholds({...thresholds, cpuSpike: Number(e.target.value)})}
+                  />
+                  <p className="text-[9px] text-slate-600 font-bold uppercase mt-1">Trigger alerts via API &gt; {thresholds.cpuSpike}%</p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex justify-between">
+                    <span>Memory Spikes</span>
+                    <span className="text-blue-500">{thresholds.memSpike}%</span>
+                  </label>
+                  <input 
+                    type="range" min="0" max="100" 
+                    className="w-full accent-blue-500"
+                    value={thresholds.memSpike}
+                    onChange={e => setThresholds({...thresholds, memSpike: Number(e.target.value)})}
+                  />
+                  <p className="text-[9px] text-slate-600 font-bold uppercase mt-1">Notify memory limits &gt; {thresholds.memSpike}%</p>
+                </div>
+              </div>
+              <div className="mt-6 pt-4 border-t border-[#1e2126] flex justify-end">
+                <button 
+                  onClick={saveThresholds}
+                  className="bg-blue-600/10 hover:bg-blue-600/20 text-blue-500 border border-blue-500/20 px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                >
+                  Save Configuration
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-[#111317] border border-[#1e2126] rounded-2xl p-6 shadow-2xl relative">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
+                  <Globe size={14} className="text-purple-500" />
+                  Threat Source Mapping
+                </h3>
+              </div>
+              <div className="h-[300px] w-full">
+                <ThreatMapping />
+              </div>
+            </div>
          </div>
 
          {/* Sidebar Bans */}
-         <div className="bg-[#111317] border border-[#1e2126] rounded-2xl flex flex-col shadow-2xl overflow-hidden min-h-0">
-            <div className="p-6 border-b border-[#1e2126]">
+         <div className="bg-[#111317] border border-[#1e2126] rounded-2xl flex flex-col shadow-2xl overflow-hidden min-h-0 h-full max-h-[850px]">
+            <div className="p-6 border-b border-[#1e2126] shrink-0">
                <h3 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
                   <ShieldAlert size={14} className="text-red-500" />
                   Painel de Banimento
                </h3>
             </div>
             
-            <div className="p-4 border-b border-[#1e2126] bg-[#0a0b0d]">
+            <div className="p-4 border-b border-[#1e2126] bg-[#0a0b0d] shrink-0">
                <div className="flex gap-2">
                   <input type="text" placeholder="IP ou HWID..." className="flex-1 bg-[#111317] border border-[#1e2126] rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-red-500" />
                   <button className="bg-red-600 hover:bg-red-500 text-white p-2.5 rounded-xl transition-all">
@@ -203,7 +283,7 @@ export default function SecurityView() {
                </div>
             </div>
 
-            <div className="p-6 bg-red-600/5 border-t border-[#1e2126]">
+            <div className="p-6 bg-red-600/5 border-t border-[#1e2126] shrink-0">
                <div className="flex items-center gap-3 mb-4">
                   <Shield size={16} className="text-red-500" />
                   <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Self-Destruct Sockets</span>

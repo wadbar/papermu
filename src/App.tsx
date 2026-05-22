@@ -51,6 +51,13 @@ const AIAssistant = React.lazy(() => import('./components/AIAssistant'));
 const AIInsights = React.lazy(() => import('./components/AIInsights'));
 const DownloadsView = React.lazy(() => import('./components/DownloadsView'));
 
+const GlobalLoader = () => (
+  <div className="h-full flex flex-col items-center justify-center gap-4 text-slate-500">
+    <Loader2 size={40} className="animate-spin text-orange-500" />
+    <span className="text-[10px] font-black uppercase tracking-widest text-orange-500/50">Carregando Módulo...</span>
+  </div>
+);
+
 type Language = 'pt' | 'en';
 
 export default function App() {
@@ -318,7 +325,11 @@ export default function App() {
   return (
     <div className="flex h-screen bg-[#050506] font-sans text-slate-300 selection:bg-orange-500/30 selection:text-orange-200">
       {/* Sidebar navigation */}
-      <aside className={`${isSidebarOpen ? 'w-72' : 'w-20'} h-full border-r border-[#1e2126] bg-[#0a0b0d] flex flex-col transition-all duration-300 ease-in-out relative z-30`}>
+      <motion.aside 
+        layout 
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+        className={`${isSidebarOpen ? 'w-72' : 'w-20'} shrink-0 h-full border-r border-[#1e2126] bg-[#0a0b0d] flex flex-col relative z-30 overflow-hidden`}
+      >
         <div className="p-6 flex items-center justify-between">
           <div className={`flex items-center gap-3 ${!isSidebarOpen && 'hidden'}`}>
             <div className="w-10 h-10 bg-gradient-to-br from-orange-600 to-orange-400 rounded-xl flex items-center justify-center text-[#050506] shadow-lg shadow-orange-500/20">
@@ -374,10 +385,14 @@ export default function App() {
             </div>
           </div>
         </div>
-      </aside>
+      </motion.aside>
 
       {/* Main Content */}
-      <main className="flex-1 h-full overflow-hidden flex flex-col relative">
+      <motion.main 
+        layout 
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+        className="flex-1 h-full overflow-hidden flex flex-col relative"
+      >
         <div className="absolute inset-0 bg-[#060709] bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 pointer-events-none"></div>
 
         <div className="flex-1 overflow-y-auto p-8 relative z-10 custom-scrollbar">
@@ -391,7 +406,7 @@ export default function App() {
               className="h-full"
             >
               <ErrorBoundary key={activeTab}>
-                <Suspense fallback={<div className="h-full flex items-center justify-center"><Loader2 size={40} className="animate-spin text-orange-500" /></div>}>
+                <Suspense fallback={<GlobalLoader />}>
                   {activeTab === 'dashboard' && <DashboardView setActiveTab={setActiveTab} serverState={serverState} language={language} />}
                 {activeTab === 'server' && <ServerManagerView serverState={serverState} />}
                 {activeTab === 'source' && <SourceCodeView language={language} />}
@@ -430,7 +445,9 @@ export default function App() {
             </motion.div>
           </AnimatePresence>
         </div>
-        <CortexSearch isOpen={isCortexOpen} onClose={() => setIsCortexOpen(false)} navigateTo={setActiveTab} />
+        <Suspense fallback={null}>
+          <CortexSearch isOpen={isCortexOpen} onClose={() => setIsCortexOpen(false)} navigateTo={setActiveTab} />
+        </Suspense>
         
         {/* Global Action Bar */}
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40">
@@ -513,7 +530,7 @@ export default function App() {
             style: { borderLeft: '4px solid #ef4444' }
           }
         }} />
-      </main>
+      </motion.main>
     </div>
   );
 }

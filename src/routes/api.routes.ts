@@ -89,6 +89,29 @@ router.use((req, res, next) => {
 
 // --- Endpoints ---
 
+router.get("/performance", (req, res) => {
+  const v8 = require('v8');
+  const memoryUsage = process.memoryUsage();
+  const heapStats = v8.getHeapStatistics();
+  res.json({
+    memoryUsage,
+    heapStats,
+    uptime: process.uptime(),
+    pid: process.pid,
+    arch: process.arch,
+    platform: process.platform
+  });
+});
+
+router.post("/performance/gc", (req, res) => {
+  if (global.gc) {
+    global.gc();
+    res.json({ success: true, message: "Garbage collection triggered" });
+  } else {
+    res.status(400).json({ success: false, error: "Garbage collection not exposed. Run node with --expose-gc" });
+  }
+});
+
 router.get("/metrics", (req, res) => {
   // Simulate CTO metrics for local dev/preview
   const memory = process.memoryUsage();

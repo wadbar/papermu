@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
 import { safeFetch, fetchWithRetry } from '../lib/utils';
 import { User, Activity, Users, ServerCrash, Loader2, TrendingUp, Cpu, Zap, Settings, Server, Shield, BrainCircuit, HardDrive, ShieldAlert, Database, Sparkles, BookOpen, Lightbulb, Globe, ChevronRight, ShieldCheck, AlertTriangle, AlertOctagon } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
@@ -7,14 +7,22 @@ import toast from 'react-hot-toast';
 import { i18n, Language } from '../i18n';
 import { MU_MAPS, MU_CLASSES } from '../lib/muKnowledge';
 
-import SupremaCheckup from './SupremaCheckup';
+const SupremaCheckup = React.lazy(() => import('./SupremaCheckup'));
+const PerformanceMonitor = React.lazy(() => import('./PerformanceMonitor'));
+const AIInsights = React.lazy(() => import('./AIInsights'));
 
-import AIInsights from './AIInsights';
+const MiniLoader = () => (
+  <div className="flex flex-col items-center justify-center p-8 text-slate-500">
+    <Loader2 size={24} className="animate-spin text-orange-500 mb-2" />
+    <span className="text-[10px] font-black uppercase tracking-widest">Carregando Modulo...</span>
+  </div>
+);
 
 export default function DashboardView({ setActiveTab, serverState, language }: { setActiveTab: (tab: string) => void, serverState: string, language: Language }) {
   const isOnline = serverState === 'online';
   const isStarting = serverState === 'starting';
   const t = i18n[language];
+  const [viewTab, setViewTab] = useState<'overview' | 'performance'>('overview');
 
   const [hostInfo, setHostInfo] = useState({ os: 'Carregando...', cpu: '...', storage: '...', ram: '...' });
   const [muServerPath, setMuServerPath] = useState("");
@@ -256,7 +264,14 @@ export default function DashboardView({ setActiveTab, serverState, language }: {
           {threatLevel > 50 && (
              <motion.div 
                 initial={{ opacity: 0, scale: 0.9 }} 
-                animate={{ opacity: 1, scale: 1 }}
+                animate={{ 
+                  opacity: 1, 
+                  scale: 1,
+                  x: threatLevel > 70 ? [-3, 3, -3, 3, 0] : 0 
+                }}
+                transition={{ 
+                  x: { repeat: Infinity, duration: 0.5, repeatDelay: 1 } 
+                }}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border ${
                    threatLevel > 70 
                      ? 'bg-red-500/10 text-red-500 border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]' 
@@ -267,6 +282,25 @@ export default function DashboardView({ setActiveTab, serverState, language }: {
                 Nível de Ameaça: {threatLevel}%
              </motion.div>
           )}
+
+          <div className="flex bg-[#111317] border border-[#1e2126] rounded-xl p-1 gap-1">
+             <button
+                onClick={() => setViewTab('overview')}
+                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                   viewTab === 'overview' ? 'bg-orange-500/20 text-orange-500 shadow-sm' : 'text-slate-500 hover:text-white'
+                }`}
+             >
+                Overview
+             </button>
+             <button
+                onClick={() => setViewTab('performance')}
+                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all gap-2 flex items-center ${
+                   viewTab === 'performance' ? 'bg-orange-500/20 text-orange-500 shadow-sm' : 'text-slate-500 hover:text-white'
+                }`}
+             >
+                <Cpu size={12} /> Perf. Monitor
+             </button>
+          </div>
         </div>
         <div className="bg-[#111317] border border-[#1e2126] p-3 rounded-2xl flex items-center gap-4 hidden md:flex">
            <div className="flex flex-col items-end">
@@ -279,9 +313,15 @@ export default function DashboardView({ setActiveTab, serverState, language }: {
         </div>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {[
-          { label: t.dashboard.online, value: isOnline ? dbStats.onlinePlayers : t.dashboard.offline, icon: User, color: 'text-orange-500' },
+      {viewTab === 'performance' ? (
+        <Suspense fallback={<MiniLoader />}>
+          <PerformanceMonitor />
+        </Suspense>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {[
+              { label: t.dashboard.online, value: isOnline ? dbStats.onlinePlayers : t.dashboard.offline, icon: User, color: 'text-orange-500' },
           { label: t.dashboard.accounts, value: isOnline ? dbStats.totalAccounts : '0', icon: Activity, color: 'text-blue-500' },
           { label: t.dashboard.chars, value: isOnline ? `${dbStats.totalCharacters} (${dbStats.totalGuilds})` : t.dashboard.offline, icon: Users, color: 'text-green-500' },
           { label: t.dashboard.errors, value: isOnline ? '0' : '0', icon: ServerCrash, color: 'text-red-500' },
@@ -509,8 +549,10 @@ export default function DashboardView({ setActiveTab, serverState, language }: {
                  ))}
               </div>
            </div>
-
-           <AIInsights />
+           
+           <Suspense fallback={<MiniLoader />}>
+             <AIInsights />
+           </Suspense>
 
            <div className="bg-[#111317] border border-[#1e2126] rounded-2xl p-6 shadow-2xl">
               <h3 className="font-bold text-white mb-6 uppercase text-xs tracking-widest flex items-center gap-2"><BookOpen size={14} className="text-orange-500"/> Mu Online Intelligence</h3>
@@ -528,7 +570,9 @@ export default function DashboardView({ setActiveTab, serverState, language }: {
         </div>
 
         <div className="space-y-6">
-          <SupremaCheckup />
+          <Suspense fallback={<MiniLoader />}>
+            <SupremaCheckup />
+          </Suspense>
           
           {/* LOG SENTINEL MONITOR */}
           <motion.div 
@@ -753,6 +797,8 @@ export default function DashboardView({ setActiveTab, serverState, language }: {
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

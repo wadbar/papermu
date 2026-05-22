@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { safeFetch } from '../lib/utils';
-import { BrainCircuit, FileText, Activity, Loader2 } from 'lucide-react';
+import { BrainCircuit, FileText, Activity, Loader2, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function LogsView() {
@@ -28,6 +28,15 @@ export default function LogsView() {
     }, 2000);
     return () => clearInterval(interval);
   }, [isPaused]);
+
+  const handleCopyLogs = async () => {
+    try {
+      await navigator.clipboard.writeText(filteredLogs.join('\n'));
+      toast.success("Logs copiados para a área de transferência.");
+    } catch (err) {
+      toast.error("Falha ao copiar os logs.");
+    }
+  };
 
   const handleAnalyzeLogs = async () => {
     if (logs.length === 0) {
@@ -106,6 +115,9 @@ export default function LogsView() {
             </div>
             <button onClick={() => setIsPaused(!isPaused)} className={`${isPaused ? 'bg-orange-600' : 'bg-[#111317]'} hover:bg-[#1e2126] border border-[#1e2126] text-slate-300 px-4 py-2 rounded-lg text-xs font-bold transition-colors`}>
              {isPaused ? 'Retomar' : 'Pausar'}
+           </button>
+           <button onClick={handleCopyLogs} className="bg-[#111317] hover:bg-[#1e2126] border border-[#1e2126] text-slate-300 px-4 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-2">
+             <Copy size={14} /> Copiar Logs
            </button>
            <button className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors">Baixar .TXT</button>
            <button 
