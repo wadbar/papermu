@@ -246,8 +246,61 @@ async function startServer() {
   const banList = new Map<string, number>();
   const requestCounts = new Map<string, { count: number, resetAt: number }>();
   const WINDOW_MS = 10000; // 10s
-  const MAX_REQS_PER_WINDOW = 200; 
-  const BAN_DURATION_MS = 60000; // 1 min ban
+  let dynamicMaxReqs = 200; 
+  let dynamicBanDurationMs = 60000; 
+
+  app.get("/api/security/ddos-config", (req, res) => {
+    res.json({ maxReqs: dynamicMaxReqs, banDuration: dynamicBanDurationMs });
+  });
+
+  app.post("/api/security/ddos-config", (req, res) => {
+    const { maxReqs, banDuration } = req.body;
+    if (typeof maxReqs === 'number') dynamicMaxReqs = maxReqs;
+    if (typeof banDuration === 'number') dynamicBanDurationMs = banDuration;
+    logger.info(`[SHIELD] Runtime DDoS config updated: maxReqs=${dynamicMaxReqs}, banDuration=${dynamicBanDurationMs}`);
+    res.json({ success: true, maxReqs: dynamicMaxReqs, banDuration: dynamicBanDurationMs });
+  });
+
+  app.get("/api/security/banned-ips", (req, res) => {
+    const now = Date.now();
+    const activeBans = Array.from(banList.entries())
+      .filter(([ip, banTime]) => now - banTime < dynamicBanDurationMs)
+      .map(([ip, banTime]) => ({
+        ip,
+        bannedAt: banTime,
+        expiresIn: Math.max(0, dynamicBanDurationMs - (now - banTime))
+      }));
+    res.json({ blockedIps: activeBans });
+  });
+
+  app.post("/api/security/unban-ip", (req, res) => {
+    const { ip } = req.body;
+    if (ip) {
+      banList.delete(ip);
+      ipReputation.delete(ip);
+      logger.info(`[SHIELD] IP ${ip} manually unbanned.`);
+      res.json({ success: true, message: `IP ${ip} unbanned.` });
+    } else {
+      res.status(400).json({ error: "IP required" });
+    }
+  });
+
+  app.get("/api/security/my-ip-status", (req, res) => {
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+    let userIp = Array.isArray(ip) ? ip[0] : ip.split(',')[0].trim();
+    
+    const now = Date.now();
+    const banTime = banList.get(userIp);
+    const isBanned = banTime && (now - banTime < dynamicBanDurationMs);
+    const reputation = ipReputation.get(userIp) || 0;
+    
+    res.json({
+      ip: userIp,
+      isBanned: !!isBanned,
+      reputation,
+      expiresIn: isBanned ? Math.max(0, dynamicBanDurationMs - (now - banTime)) : 0
+    });
+  });
 
   // Memory cleanup for anti-DDoS arrays (executes every 5 minutes)
   setInterval(() => {
@@ -285,9 +338,9 @@ async function startServer() {
 
      requestCounts.set(ip, reqData);
 
-     if (reqData.count > MAX_REQS_PER_WINDOW) {
+     if (reqData.count > dynamicMaxReqs) {
         logger.error(`[SHIELD] DDoS threshold crossed! Banning IP: ${ip}`);
-        banList.set(ip, now + BAN_DURATION_MS);
+        banList.set(ip, now + dynamicBanDurationMs);
         penalizeIp(ip, 15, "Limite de requisições excedido. Possível DDoS flood.");
         return res.status(429).json({ error: "Muitas requisições. Mecanismo de defesa ativado." });
      }

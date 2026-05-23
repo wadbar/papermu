@@ -60,6 +60,73 @@ const GlobalLoader = () => (
 
 type Language = 'pt' | 'en';
 
+
+const navGroups = [
+  {
+    title: 'Zênite / Kernel',
+    items: [
+      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { id: 'server', label: 'MuServer Control', icon: Server },
+      { id: 'checkup', label: 'Suprema Checkup', icon: Activity },
+      { id: 'bridge', label: 'Zenite Bridge', icon: Activity },
+    ]
+  },
+  {
+    title: 'Contas & Economia',
+    items: [
+      { id: 'players', label: 'Personagens & Contas', icon: Users },
+      { id: 'economy', label: 'Economia & Drops', icon: Coins },
+      { id: 'guilds', label: 'Guilds & Alianças', icon: Shield },
+    ]
+  },
+  {
+    title: 'Arquivos & Source',
+    items: [
+      { id: 'source', label: 'C++ Source Editor', icon: Terminal },
+      { id: 'configs', label: 'Kernel Configs', icon: Settings2 },
+      { id: 'database', label: 'SQL Explorer', icon: DatabaseIcon },
+      { id: 'encyclopedia', label: 'Item Encyclopedia', icon: BookOpen },
+      { id: 'item-editor', label: 'Item Editor', icon: Package },
+      { id: 'monsterset', label: 'MonsterSetBase', icon: Users },
+      { id: 'spots', label: 'Editor de Spots', icon: Map },
+      { id: 'eventbag', label: 'EventBags', icon: Package },
+      { id: 'shops', label: 'Server Shops', icon: Edit },
+    ]
+  },
+  {
+    title: 'Eventos & Sistemas',
+    items: [
+      { id: 'events', label: 'Event Schedule', icon: Clock },
+      { id: 'castlesiege', label: 'Castle Siege', icon: Swords },
+      { id: 'vip', label: 'VIP System', icon: User },
+      { id: 'cashshop', label: 'XShop Editor', icon: ShoppingCart },
+    ]
+  },
+  {
+    title: 'Plataforma Web',
+    items: [
+      { id: 'web-client', label: 'Web Launcher', icon: Globe },
+      { id: 'marketplace', label: 'MuMarketplace', icon: Package },
+      { id: 'command-center', label: 'Command Center', icon: BrainCircuit },
+      { id: 'ai-assistant', label: 'Cortex Assistant', icon: MessageSquare },
+      { id: 'ai-insights', label: 'Cortex Insights', icon: Radar },
+      { id: 'downloads', label: 'Game Client', icon: HardDrive },
+    ]
+  },
+  {
+    title: 'Utilitários',
+    items: [
+      { id: 'security', label: 'Shield & Segurança', icon: Shield },
+      { id: 'logs', label: 'Real-time Logs', icon: Search },
+      { id: 'tools', label: 'General Tools', icon: LucideTool },
+      { id: 'backups', label: 'DB Backups', icon: Database },
+      { id: 'todo', label: 'Tasks / TODO', icon: Trello },
+      { id: 'workspaces', label: 'Workspaces', icon: Layers },
+      { id: 'settings', label: 'Settings', icon: Settings },
+    ]
+  }
+];
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('settings');
   const [language, setLanguage] = useState<Language>('pt');
@@ -80,6 +147,7 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -164,7 +232,6 @@ export default function App() {
       });
     });
 
-    // ... existing socket setup ...
     socket.on('file:changed', (data: { event: string; path: string; timestamp: string }) => {
       toast.custom(
         (t) => (
@@ -206,72 +273,6 @@ export default function App() {
       socket.off('file:changed');
     };
   }, []);
-
-  const navGroups = [
-    {
-      title: 'Zênite / Kernel',
-      items: [
-        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'server', label: 'MuServer Control', icon: Server },
-        { id: 'checkup', label: 'Suprema Checkup', icon: Activity },
-        { id: 'bridge', label: 'Zenite Bridge', icon: Activity },
-      ]
-    },
-    {
-      title: 'Contas & Economia',
-      items: [
-        { id: 'players', label: 'Personagens & Contas', icon: Users },
-        { id: 'economy', label: 'Economia & Drops', icon: Coins },
-        { id: 'guilds', label: 'Guilds & Alianças', icon: Shield },
-      ]
-    },
-    {
-      title: 'Arquivos & Source',
-      items: [
-        { id: 'source', label: 'C++ Source Editor', icon: Terminal },
-        { id: 'configs', label: 'Kernel Configs', icon: Settings2 },
-        { id: 'database', label: 'SQL Explorer', icon: DatabaseIcon },
-        { id: 'encyclopedia', label: 'Item Encyclopedia', icon: BookOpen },
-        { id: 'item-editor', label: 'Item Editor', icon: Package },
-        { id: 'monsterset', label: 'MonsterSetBase', icon: Users },
-        { id: 'spots', label: 'Editor de Spots', icon: Map },
-        { id: 'eventbag', label: 'EventBags', icon: Package },
-        { id: 'shops', label: 'Server Shops', icon: Edit },
-      ]
-    },
-    {
-      title: 'Eventos & Sistemas',
-      items: [
-        { id: 'events', label: 'Event Schedule', icon: Clock },
-        { id: 'castlesiege', label: 'Castle Siege', icon: Swords },
-        { id: 'vip', label: 'VIP System', icon: User },
-        { id: 'cashshop', label: 'XShop Editor', icon: ShoppingCart },
-      ]
-    },
-    {
-      title: 'Plataforma Web',
-      items: [
-        { id: 'web-client', label: 'Web Launcher', icon: Globe },
-        { id: 'marketplace', label: 'MuMarketplace', icon: Package },
-        { id: 'command-center', label: 'Command Center', icon: BrainCircuit },
-        { id: 'ai-assistant', label: 'Cortex Assistant', icon: MessageSquare },
-        { id: 'ai-insights', label: 'Cortex Insights', icon: Radar },
-        { id: 'downloads', label: 'Game Client', icon: HardDrive },
-      ]
-    },
-    {
-      title: 'Utilitários',
-      items: [
-        { id: 'security', label: 'Shield & Segurança', icon: Shield },
-        { id: 'logs', label: 'Real-time Logs', icon: Search },
-        { id: 'tools', label: 'General Tools', icon: LucideTool },
-        { id: 'backups', label: 'DB Backups', icon: Database },
-        { id: 'todo', label: 'Tasks / TODO', icon: Trello },
-        { id: 'workspaces', label: 'Workspaces', icon: Layers },
-        { id: 'settings', label: 'Settings', icon: Settings },
-      ]
-    }
-  ];
 
   if (maintenanceMode && !(isLoggedIn && isAdmin)) {
     return (

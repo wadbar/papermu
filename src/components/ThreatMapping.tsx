@@ -35,9 +35,9 @@ export default function ThreatMapping() {
       .size([width - 2, height - 2])
       .padding(3);
 
-    const root = pack(d3.hierarchy({ children: data })
+    const root = pack(d3.hierarchy<any>({ children: data })
       .sum(d => d.value)
-      .sort((a: any, b: any) => b.value - a.value));
+      .sort((a, b) => b.value - a.value));
 
     const leaf = svg.selectAll('g')
       .data(root.leaves())
@@ -45,7 +45,7 @@ export default function ThreatMapping() {
       .attr('transform', d => `translate(${d.x + 1},${d.y + 1})`);
 
     leaf.append('circle')
-      .attr('id', (d, i) => (d.leafUid = `leaf-${i}`))
+      .attr('id', (d: any, i) => (d.leafUid = `leaf-${i}`))
       .attr('r', d => d.r)
       .attr('fillOpacity', 0.7)
       .attr('fill', (d: any) => d.data.color)
@@ -57,12 +57,12 @@ export default function ThreatMapping() {
       });
 
     leaf.append('clipPath')
-      .attr('id', d => (d.clipUid = `clip-${d.leafUid}`))
+      .attr('id', (d: any) => (d.clipUid = `clip-${d.leafUid}`))
       .append('use')
-      .attr('xlink:href', d => `#${d.leafUid}`);
+      .attr('xlink:href', (d: any) => `#${d.leafUid}`);
 
     leaf.append('text')
-      .attr('clip-path', d => `url(#${d.clipUid})`)
+      .attr('clip-path', (d: any) => `url(#${d.clipUid})`)
       .selectAll('tspan')
       .data((d: any) => [d.data.id, d.data.value.toString()])
       .join('tspan')

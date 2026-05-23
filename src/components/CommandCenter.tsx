@@ -3,11 +3,12 @@ import { motion } from 'motion/react';
 import { 
   Zap, UserPlus, ShieldX, Sword, Crown, 
   Trash2, RefreshCw, Send, AlertTriangle, 
-  UserCheck, Database, Terminal, Ghost, Skull, Loader2, Sparkles, MessageSquare, BookOpen, Search
+  UserCheck, Database, Terminal, Ghost, Skull, Loader2, Sparkles, MessageSquare, BookOpen, Search, BrainCircuit
 } from 'lucide-react';
 import { safeFetch } from '../lib/utils';
 import toast from 'react-hot-toast';
 import ReactMarkdown from 'react-markdown';
+
 
 export default function CommandCenter() {
   const [activeView, setActiveView] = useState<'commands' | 'oracle' | 'broadcast' | 'sql'>('commands');
@@ -533,5 +534,3 @@ export default function CommandCenter() {
     </div>
   );
 }
-
-const BrainCircuit = ({ size, className }: { size: number, className?: string }) => <Zap size={size} className={className} />;
