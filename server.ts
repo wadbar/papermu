@@ -122,8 +122,58 @@ async function startServer() {
   }));
   app.use(express.json({ limit: '10mb' }));
 
+  // --- IP REPUTATION SYSTEM ---
+  const IP_REPUTATION_FILE = path.join(process.cwd(), 'data', 'ip_reputation.json');
+  let ipReputation = new Map<string, number>();
+  
+  if (fs.existsSync(IP_REPUTATION_FILE)) {
+    try {
+      const data = fs.readFileSync(IP_REPUTATION_FILE, 'utf8');
+      ipReputation = new Map(Object.entries(JSON.parse(data)));
+    } catch (e) {
+      logger.error('Failed to load IP reputation data', e);
+    }
+  }
+
+  const saveIpReputation = () => {
+    try {
+      const obj = Object.fromEntries(ipReputation);
+      fs.writeFileSync(IP_REPUTATION_FILE, JSON.stringify(obj));
+    } catch (e) {
+      logger.error('Failed to save IP reputation data', e);
+    }
+  };
+
+  const getReputation = (ip: string) => {
+    if (!ipReputation.has(ip)) ipReputation.set(ip, 100);
+    return ipReputation.get(ip)!;
+  };
+
+  const penalizeIp = (ip: string, penalty: number, reason: string) => {
+    const current = getReputation(ip);
+    const newRep = current - penalty;
+    ipReputation.set(ip, newRep);
+    logger.warn(`[REPUTATION] IP ${ip} penalized by ${penalty} points. Reason: ${reason}. New score: ${newRep}`);
+    saveIpReputation();
+    return newRep;
+  };
+
   // --- THE SENTINEL: ULTRA-DEEP RUNTIME SHIELD ---
   app.use((req, res, next) => {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+
+    // Verify IP Reputation immediately
+    if (getReputation(ip) <= 0) {
+      return res.status(403).json({ error: "Acesso permanentemente bloqueado devido a reputação negativa (Atividades de Scanner/Ataque)." });
+    }
+
+    // Scanning check: Block common vulnerability scan paths and penalize
+    const suspiciousPaths = ['.env', '.git', 'wp-admin', 'phpmyadmin', 'config.php', 'backup.zip', 'xmlrpc.php'];
+    if (suspiciousPaths.some(p => req.path.toLowerCase().includes(p))) {
+       penalizeIp(ip, 30, `Tentativa de varredura de arquivo sensível: ${req.path}`);
+       return res.status(403).json({ error: "Operação proibida pelo Guardião." });
+    }
+
     // Only scan API routes to avoid perf hits on assets
     if (req.path.startsWith('/api')) {
       const suspiciousPayload = JSON.stringify({ body: req.body, query: req.query, params: req.params });
@@ -143,6 +193,8 @@ async function startServer() {
         if (pattern.test(suspiciousPayload)) {
           logger.warn(`[SHIELD] Malicious payload pattern matched: ${pattern} from IP: ${req.ip}`);
           
+          penalizeIp(ip, 20, `Malicious payload pattern matched: ${pattern}`);
+
           // BROADCAST SECURITY ALERT
           eventBus.emitAlert({
             type: 'SECURITY_THREAT',
@@ -236,6 +288,7 @@ async function startServer() {
      if (reqData.count > MAX_REQS_PER_WINDOW) {
         logger.error(`[SHIELD] DDoS threshold crossed! Banning IP: ${ip}`);
         banList.set(ip, now + BAN_DURATION_MS);
+        penalizeIp(ip, 15, "Limite de requisições excedido. Possível DDoS flood.");
         return res.status(429).json({ error: "Muitas requisições. Mecanismo de defesa ativado." });
      }
 
