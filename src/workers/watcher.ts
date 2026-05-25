@@ -24,6 +24,11 @@ watcher.on('all', (event, filePath) => {
     });
 });
 
-process.on('SIGTERM', () => {
-    watcher.close().then(() => process.exit(0));
+process.on('SIGTERM', async () => {
+    try {
+        await watcher.close();
+        process.exit(0);
+    } catch (err) {
+        process.exit(1);
+    }
 });

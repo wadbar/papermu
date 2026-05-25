@@ -22,8 +22,8 @@ export default defineConfig(({mode}) => {
       tailwindcss(),
       visualizer({ 
         open: false, 
-        gzipSize: true, 
-        brotliSize: true, 
+        gzipSize: false, 
+        brotliSize: false, 
         filename: 'stats.html' 
       }),
       visualizerConsoleLog()

@@ -285,6 +285,24 @@ async function startServer() {
     }
   });
 
+  app.post("/api/security/block-ip", (req, res) => {
+    const { ip } = req.body;
+    if (ip) {
+      banList.set(ip, Date.now());
+      ipReputation.set(ip, -100);
+      logger.warn(`[SHIELD] IP ${ip} manually blocked.`);
+      res.json({ success: true, message: `IP ${ip} blocked.` });
+    } else {
+      res.status(400).json({ error: "IP required" });
+    }
+  });
+
+  app.post("/api/security/reset-counters", (req, res) => {
+    requestCounts.clear();
+    logger.info(`[SHIELD] Request counters manually reset.`);
+    res.json({ success: true, message: `Counters reset.` });
+  });
+
   app.get("/api/security/my-ip-status", (req, res) => {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
     let userIp = Array.isArray(ip) ? ip[0] : ip.split(',')[0].trim();
@@ -303,7 +321,7 @@ async function startServer() {
   });
 
   // Memory cleanup for anti-DDoS arrays (executes every 5 minutes)
-  setInterval(() => {
+  const cleanupInterval = setInterval(() => {
     const now = Date.now();
     for (const [ip, data] of requestCounts.entries()) {
       if (now > data.resetAt) requestCounts.delete(ip);
@@ -435,7 +453,7 @@ async function startServer() {
         });
 
         // --- PREDICTIVE ECONOMY SCANNER ---
-        setInterval(async () => {
+        const economyInterval = setInterval(async () => {
           try {
              // In-memory bypass network overhead by using local fetch
              const res = await fetch(`http://127.0.0.1:${port}/api/economy`);
@@ -489,6 +507,7 @@ async function startServer() {
   // Graceful Shutdown & Resiliência (THE GUARDIAN)
   const gracefulShutdown = (signal: string) => {
     logger.info(`[SYSTEM] Received ${signal}. Initiating Graceful Shutdown...`);
+    clearInterval(cleanupInterval);
     server.close(() => {
       logger.info("[SYSTEM] Connections closed. Ecosystem offline.");
       process.exit(0);
